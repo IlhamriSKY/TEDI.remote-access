@@ -1,0 +1,48 @@
+name: Build check
+
+# Guards the source: the browser client must typecheck + build, the entry/relay
+# scripts must be valid JS, and the Rust agent must compile. extension.js IS
+# committed (it is a single self-contained file, not a bundle), so it is only
+# syntax-checked here.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "client/**"
+      - "sidecar-src/**"
+      - "extension.js"
+      - "manifest.json"
+      - "server/server.js"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  client:
+    name: Client + scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Build browser client
+        working-directory: client
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: Syntax-check extension entry + relay
+        run: |
+          node --check extension.js
+          node --check server/server.js
+
+  agent:
+    name: Agent compiles
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo check
+        working-directory: sidecar-src
+        run: cargo check

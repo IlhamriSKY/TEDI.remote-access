@@ -1,0 +1,32 @@
+# CI-built agent binaries (per os/arch). Shipped in the release zip; ignored in
+# the source tree so local cargo builds don't pollute git status.
+/sidecar/
+
+# Rust build artefacts
+/sidecar-src/target/
+
+# Node deps (client + server)
+node_modules/
+
+# Built browser SPA. Generated from client/ into server/public by
+# `cd client && npm run build`. NOT committed: CI builds it into the relay.zip,
+# and the relay serves it on the VPS. Build locally for dev.
+/server/public/
+
+# Release artefacts
+dist/
+*.zip
+
+# Local agent config (may contain the relay token)
+*.agent.json
+.env
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Claude Code local settings (machine-specific permissions)
+.claude/settings.local.json

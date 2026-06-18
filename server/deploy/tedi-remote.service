@@ -1,0 +1,19 @@
+[Unit]
+Description=TEDI remote-access relay (agent <-> browser bridge)
+After=network.target
+
+[Service]
+Type=simple
+User=msi
+WorkingDirectory=/var/www/html/tedi-remote
+EnvironmentFile=/var/www/html/tedi-remote/.env
+# nvm-managed node. If you upgrade node, update this path (or symlink it).
+ExecStart=/home/msi/.nvm/versions/node/v22.22.2/bin/node /var/www/html/tedi-remote/server.js
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
