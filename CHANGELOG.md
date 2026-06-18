@@ -2,6 +2,22 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.2.0] - 2026-06-19
+
+- **SSH tab mirroring.** SSH tabs you open in TEDI now mirror to the browser
+  (sky stripe + `ssh` badge). Because SSH sessions live in the GUI process (not
+  the PTY daemon), a webview bridge attaches to each via the host `ssh_attach`
+  command and forwards it to the relay as a SECOND source; input routes back
+  through `ssh_write` / `ssh_resize`.
+- **Relay multi-source.** The relay now accepts multiple agent sources (native
+  PTY agent + SSH bridge), merges their session lists, and broadcasts browser
+  input to all sources (each ignores ids it doesn't own — no PTY regression).
+  Header-less WS sources authenticate with a short-lived ticket
+  (`POST /api/agent-ticket`).
+- Requires a TEDI build exposing `ssh_list_sessions` / `ssh_attach` +
+  `ctx.invokeChannel` (a TEDI core change). On older builds the SSH bridge
+  transparently no-ops and only local terminals mirror.
+
 ## [0.1.0] - 2026-06-18
 
 - Initial release.

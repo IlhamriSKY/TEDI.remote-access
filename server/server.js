@@ -44,6 +44,10 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY = 1 << 16;
 
+// Short-lived WS tickets for header-less sources (the webview SSH bridge can't
+// set an Authorization header on a WebSocket handshake).
+const agentTickets = new Map(); // ticket -> expiry ms
+
 if (!AGENT_TOKEN) {
   console.error("[relay] FATAL: AGENT_TOKEN env is required");
   process.exit(1);
@@ -285,6 +289,17 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true });
   }
 
+  // Issue a one-time WS ticket for a header-less source (the SSH bridge), gated
+  // by the agent bearer token (which fetch CAN send).
+  if (p === "/api/agent-ticket") {
+    if (req.method !== "POST") return json(res, 405, { ok: false });
+    const auth = req.headers["authorization"] || "";
+    if (!safeEqStr(auth, `Bearer ${AGENT_TOKEN}`)) return json(res, 401, { ok: false });
+    const ticket = crypto.randomBytes(18).toString("base64url");
+    agentTickets.set(ticket, Date.now() + 60_000);
+    return json(res, 200, { ok: true, ticket });
+  }
+
   if (p === "/healthz") return res.writeHead(200).end("ok");
 
   if (req.method !== "GET" && req.method !== "HEAD") return res.writeHead(405).end("method not allowed");
@@ -296,9 +311,13 @@ const server = http.createServer(async (req, res) => {
 const wssAgent = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
 const wssClient = new WebSocketServer({ noServer: true, maxPayload: 1 * 1024 * 1024 });
 
-let agentSocket = null;
+// Multiple agent SOURCES can connect: the native PTY agent and the webview SSH
+// bridge. Sessions from every source are merged for browsers; browser input is
+// broadcast to all sources, each ignoring ids it doesn't own. Host is "online"
+// while at least one source is connected.
+const agents = new Set();
+const sessionsBySource = new Map(); // ws -> sessions items[]
 let agentName = null;
-let lastSessionsFrame = null;
 const clients = new Set();
 
 function broadcastClients(text) {
@@ -313,38 +332,52 @@ function broadcastClients(text) {
   }
 }
 
+function mergedSessionItems() {
+  const out = [];
+  for (const items of sessionsBySource.values()) for (const it of items) out.push(it);
+  return out;
+}
+function broadcastSessions() {
+  broadcastClients(JSON.stringify({ t: "sessions", items: mergedSessionItems() }));
+}
+
 wssAgent.on("connection", (ws) => {
-  if (agentSocket && agentSocket !== ws) {
-    try {
-      agentSocket.close(4000, "replaced");
-    } catch {
-      /* ignore */
-    }
-  }
-  agentSocket = ws;
+  agents.add(ws);
+  sessionsBySource.set(ws, []);
   ws.isAlive = true;
-  log("agent connected");
+  log(`agent source connected (${agents.size} total)`);
   broadcastClients(JSON.stringify({ t: "host", status: "online", name: agentName }));
 
   ws.on("message", (data) => {
     const s = data.toString();
+    let o = null;
     try {
-      const o = JSON.parse(s);
-      if (o && o.t === "sessions") lastSessionsFrame = s;
-      if (o && o.t === "host" && o.name) agentName = o.name;
+      o = JSON.parse(s);
     } catch {
-      /* opaque frame, still forward */
+      /* opaque */
     }
+    if (o && o.t === "sessions") {
+      sessionsBySource.set(ws, Array.isArray(o.items) ? o.items : []);
+      broadcastSessions();
+      return;
+    }
+    if (o && o.t === "host") {
+      if (o.name) {
+        agentName = o.name;
+        broadcastClients(JSON.stringify({ t: "host", status: "online", name: agentName }));
+      }
+      return; // host status is derived from connections, not forwarded raw
+    }
+    // data / attached / exit / pong -> straight to browsers (keyed by session id)
     broadcastClients(s);
   });
   ws.on("pong", () => (ws.isAlive = true));
   ws.on("close", () => {
-    if (agentSocket === ws) {
-      agentSocket = null;
-      lastSessionsFrame = null;
-      log("agent disconnected");
-      broadcastClients(JSON.stringify({ t: "host", status: "offline" }));
-    }
+    agents.delete(ws);
+    sessionsBySource.delete(ws);
+    log(`agent source disconnected (${agents.size} total)`);
+    broadcastSessions();
+    if (agents.size === 0) broadcastClients(JSON.stringify({ t: "host", status: "offline" }));
   });
   ws.on("error", () => {});
 });
@@ -353,23 +386,20 @@ wssClient.on("connection", (ws) => {
   clients.add(ws);
   ws.isAlive = true;
   log(`client connected (${clients.size} total)`);
-  if (agentSocket) {
+  if (agents.size > 0) {
     try {
       ws.send(JSON.stringify({ t: "host", status: "online", name: agentName }));
+      ws.send(JSON.stringify({ t: "sessions", items: mergedSessionItems() }));
     } catch {
       /* ignore */
     }
-    if (lastSessionsFrame) {
+    // Ask every source to replay full scrollback for the newcomer.
+    for (const a of agents) {
       try {
-        ws.send(lastSessionsFrame);
+        a.send(JSON.stringify({ t: "client_join" }));
       } catch {
         /* ignore */
       }
-    }
-    try {
-      agentSocket.send(JSON.stringify({ t: "client_join" }));
-    } catch {
-      /* ignore */
     }
   } else {
     try {
@@ -379,12 +409,16 @@ wssClient.on("connection", (ws) => {
     }
   }
 
+  // Browser input goes to every source; each ignores ids it doesn't own.
   ws.on("message", (data) => {
-    if (agentSocket && agentSocket.readyState === 1) {
-      try {
-        agentSocket.send(data.toString());
-      } catch {
-        /* ignore */
+    const s = data.toString();
+    for (const a of agents) {
+      if (a.readyState === 1) {
+        try {
+          a.send(s);
+        } catch {
+          /* ignore */
+        }
       }
     }
   });
@@ -400,7 +434,16 @@ server.on("upgrade", (req, socket, head) => {
   const { pathname } = new URL(req.url, "http://localhost");
   if (pathname === "/agent") {
     const auth = req.headers["authorization"] || "";
-    if (!safeEqStr(auth, `Bearer ${AGENT_TOKEN}`)) {
+    let ok = safeEqStr(auth, `Bearer ${AGENT_TOKEN}`);
+    if (!ok) {
+      const ticket = new URL(req.url, "http://localhost").searchParams.get("ticket") || "";
+      const exp = agentTickets.get(ticket);
+      if (exp && exp > Date.now()) {
+        agentTickets.delete(ticket);
+        ok = true;
+      }
+    }
+    if (!ok) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
@@ -429,7 +472,7 @@ const heartbeat = setInterval(() => {
       /* ignore */
     }
   };
-  if (agentSocket) check(agentSocket);
+  for (const a of agents) check(a);
   for (const c of clients) check(c);
 }, 30_000);
 heartbeat.unref();
@@ -447,10 +490,12 @@ function shutdown(sig) {
   shuttingDown = true;
   log(`${sig} received, shutting down`);
   clearInterval(heartbeat);
-  try {
-    agentSocket?.close(1001, "relay restarting");
-  } catch {
-    /* ignore */
+  for (const a of agents) {
+    try {
+      a.close(1001, "relay restarting");
+    } catch {
+      /* ignore */
+    }
   }
   for (const c of clients) {
     try {

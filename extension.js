@@ -109,6 +109,9 @@ async function startAgent() {
     setStatus("success", "Remote Access: online (" + agentName + ")");
     ctx.ui.toast("Remote Access: agent online", { variant: "success" });
     ctx.logger.info("agent online, handle", handle);
+    // Also mirror SSH tabs as a second relay source (no-ops on TEDI builds
+    // without ssh_attach / ctx.invokeChannel).
+    startSshBridge(ctx, relayUrl, token).catch(() => {});
   } catch (e) {
     const msg = e && e.message ? e.message : String(e);
     setStatus("error", "Remote Access: " + msg);
@@ -124,6 +127,7 @@ async function startAgent() {
 
 async function stopAgent() {
   const ctx = ctxRef;
+  stopSshBridge();
   if (ctx && handle != null) {
     await ctx.invoke("shell_bg_kill", { handle }).catch(() => {});
     handle = null;
@@ -140,6 +144,199 @@ function scheduleRestart() {
     await stopAgent();
     await startAgent();
   }, 300);
+}
+
+// ---- SSH bridge -------------------------------------------------------------
+// SSH tabs live in the GUI process (not the PTY daemon), so the native agent
+// can't see them. This webview bridge attaches to each SSH session via the host
+// `ssh_attach` command and forwards it to the relay as a SECOND source (the
+// relay merges sources; browser input is broadcast and each source handles only
+// its own ids). Requires a TEDI build exposing `ssh_list_sessions` /
+// `ssh_attach` + `ctx.invokeChannel`; otherwise it no-ops.
+
+let sshWs = null;
+let sshAttached = new Set(); // numeric ssh session ids we've attached
+let sshPollTimer = null;
+let sshReconnectTimer = null;
+let sshStop = false;
+
+function httpBaseFromRelay(relayUrl) {
+  try {
+    return new URL(relayUrl.replace(/^ws/, "http")).origin; // ws->http, wss->https
+  } catch {
+    return "";
+  }
+}
+function b64ToStr(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+function sshSend(obj) {
+  if (sshWs && sshWs.readyState === 1) {
+    try {
+      sshWs.send(JSON.stringify(obj));
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function startSshBridge(ctx, relayUrl, token) {
+  sshStop = false;
+  try {
+    await ctx.invoke("ssh_list_sessions");
+  } catch {
+    ctx.logger.info("ssh mirroring unavailable on this TEDI build; skipping");
+    return;
+  }
+  connectSshRelay(ctx, relayUrl, token);
+}
+
+function stopSshBridge() {
+  sshStop = true;
+  if (sshPollTimer) {
+    clearInterval(sshPollTimer);
+    sshPollTimer = null;
+  }
+  if (sshReconnectTimer) {
+    clearTimeout(sshReconnectTimer);
+    sshReconnectTimer = null;
+  }
+  if (sshWs) {
+    try {
+      sshWs.close();
+    } catch {
+      /* ignore */
+    }
+    sshWs = null;
+  }
+  sshAttached = new Set();
+}
+
+async function connectSshRelay(ctx, relayUrl, token) {
+  if (sshStop) return;
+  let ticket = null;
+  try {
+    const r = await fetch(httpBaseFromRelay(relayUrl) + "/api/agent-ticket", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+    });
+    if (r.ok) ticket = (await r.json()).ticket;
+  } catch {
+    /* retry below */
+  }
+  if (!ticket) {
+    sshReconnectTimer = setTimeout(() => connectSshRelay(ctx, relayUrl, token), 5000);
+    return;
+  }
+  const wsUrl = relayUrl + (relayUrl.includes("?") ? "&" : "?") + "ticket=" + encodeURIComponent(ticket);
+  let ws;
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch {
+    sshReconnectTimer = setTimeout(() => connectSshRelay(ctx, relayUrl, token), 5000);
+    return;
+  }
+  sshWs = ws;
+  ws.onopen = () => {
+    ctx.logger.info("ssh bridge connected to relay");
+    if (sshPollTimer) clearInterval(sshPollTimer);
+    sshPollTimer = setInterval(() => pollSsh(ctx), 2000);
+    pollSsh(ctx);
+  };
+  ws.onmessage = (ev) => {
+    let m;
+    try {
+      m = JSON.parse(ev.data);
+    } catch {
+      return;
+    }
+    handleSshRelayFrame(ctx, m);
+  };
+  ws.onclose = () => {
+    if (sshPollTimer) {
+      clearInterval(sshPollTimer);
+      sshPollTimer = null;
+    }
+    if (sshStop) return;
+    sshReconnectTimer = setTimeout(() => connectSshRelay(ctx, relayUrl, token), 3000);
+  };
+  ws.onerror = () => {
+    try {
+      ws.close();
+    } catch {
+      /* ignore */
+    }
+  };
+}
+
+async function pollSsh(ctx) {
+  let list;
+  try {
+    list = await ctx.invoke("ssh_list_sessions");
+  } catch {
+    return;
+  }
+  if (!Array.isArray(list)) return;
+  const liveIds = new Set(list.map((s) => s.id));
+  for (const id of [...sshAttached]) if (!liveIds.has(id)) sshAttached.delete(id);
+  for (const s of list) {
+    if (!s.alive || sshAttached.has(s.id)) continue;
+    sshAttached.add(s.id);
+    const rid = "ssh:" + s.id;
+    // Announce the tab + reset its terminal before data flows.
+    sshSend({ t: "attached", id: rid, scrollback: "", cols: s.cols, rows: s.rows, alive: true });
+    try {
+      await ctx.invokeChannel("ssh_attach", { id: s.id }, (e) => onSshEvent(rid, e));
+    } catch (err) {
+      sshAttached.delete(s.id);
+      ctx.logger.warn("ssh_attach failed", err);
+    }
+  }
+  sshSend({
+    t: "sessions",
+    items: list.map((s) => ({
+      id: "ssh:" + s.id,
+      title: s.user + "@" + s.host,
+      cols: s.cols,
+      rows: s.rows,
+      alive: s.alive,
+      kind: "ssh",
+    })),
+  });
+}
+
+function onSshEvent(rid, e) {
+  if (!e || !e.type) return;
+  if (e.type === "data" || e.type === "stderr") {
+    sshSend({ t: "data", id: rid, b64: e.data });
+  } else if (e.type === "exit") {
+    sshSend({ t: "exit", id: rid, code: e.code | 0 });
+  }
+  // connected / hostKeyPrompt are handled by the GUI; ignore here.
+}
+
+function handleSshRelayFrame(ctx, m) {
+  if (!m || typeof m.t !== "string") return;
+  if (m.t === "input" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
+    const id = parseInt(m.id.slice(4), 10);
+    if (!Number.isNaN(id) && m.b64) {
+      ctx.invoke("ssh_write", { id, data: b64ToStr(m.b64) }).catch(() => {});
+    }
+  } else if (m.t === "resize" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
+    const id = parseInt(m.id.slice(4), 10);
+    if (!Number.isNaN(id)) {
+      ctx.invoke("ssh_resize", { id, cols: m.cols | 0, rows: m.rows | 0 }).catch(() => {});
+    }
+  } else if (m.t === "client_join") {
+    // Re-publish the session list (no re-attach: that would add a duplicate
+    // sink). SSH late-joiners get live output, not replayed scrollback.
+    pollSsh(ctx);
+  } else if (m.t === "ping") {
+    sshSend({ t: "pong" });
+  }
 }
 
 export async function activate(ctx) {
