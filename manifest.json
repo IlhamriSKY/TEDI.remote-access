@@ -1,9 +1,9 @@
 {
   "id": "tedi.remote-access",
   "name": "Remote Access",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Mirror your open TEDI terminals to a browser anywhere, via your self-hosted relay. Toggle with Ctrl+Alt+R.",
-  "author": "IlhamRiski - ilhamriski.com",
+  "author": "IlhamriSKY",
   "homepage": "https://github.com/IlhamriSKY/TEDI",
   "icon": "icon.png",
   "main": "extension.js",
@@ -35,8 +35,8 @@
         "id": "relayUrl",
         "type": "string",
         "label": "Relay URL",
-        "default": "wss://remote.ilhamriski.com/agent",
-        "description": "Your relay's agent WebSocket endpoint."
+        "default": "",
+        "description": "Your own relay's agent WebSocket endpoint, e.g. wss://your-domain/agent."
       },
       {
         "id": "agentToken",

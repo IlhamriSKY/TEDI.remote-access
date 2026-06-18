@@ -7,7 +7,9 @@
 // extension settings, spawns the agent, reads its READY handshake, and exposes
 // a status-bar indicator + a Ctrl+Alt+R toggle.
 
-const DEFAULT_RELAY = "wss://remote.ilhamriski.com/agent";
+// No default relay: every user must point this at THEIR own relay in Settings.
+// Hardcoding a default would make all installs phone home to one host.
+const DEFAULT_RELAY = "";
 
 let ctxRef = null;
 let handle = null;
@@ -98,6 +100,11 @@ async function startAgent() {
     return;
   }
   const relayUrl = (await ctx.settings.get("relayUrl")) || DEFAULT_RELAY;
+  if (!relayUrl) {
+    setStatus("warning", "Remote Access: set the relay URL in Settings");
+    ctx.ui.toast("Remote Access: set your relay URL in Settings -> Extensions", { variant: "warning" });
+    return;
+  }
   const agentName = (await ctx.settings.get("agentName")) || "TEDI host";
 
   booting = true;

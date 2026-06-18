@@ -2,6 +2,17 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.3.1] - 2026-06-19
+
+- **Fix install from GitHub.** The release shipped two `.zip` assets and TEDI's
+  installer picks the first `.zip`, so it could grab the relay bundle (no
+  manifest at root) and fail. The relay bundle now ships as `.tar.gz`, leaving
+  the extension `.zip` as the only zip.
+- **No default relay.** The hardcoded default relay URL was removed; each user
+  must set their own relay in Settings, so a fresh install never connects to
+  anyone else's host. The deploy nginx templates are genericized too.
+- Relay: prune + cap the one-time WS ticket store.
+
 ## [0.3.0] - 2026-06-19
 
 - **Browser UI refresh.** Light + dark themes (system-aware, persisted, no

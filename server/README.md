@@ -23,8 +23,8 @@ This `server/` folder is what you deploy:
 | `gen-hash.js` | Generates the scrypt password hash for `LOGIN_PASS_HASH`. |
 | `public/` | The built browser SPA (run `cd ../client && npm run build` first). |
 | `deploy/tedi-remote.service` | systemd unit template. |
-| `deploy/remote.ilhamriski.com.http.conf` | nginx phase-1 (ACME challenge only). |
-| `deploy/remote.ilhamriski.com.conf` | nginx phase-2 (HTTPS + WS proxy + gzip). |
+| `deploy/remote.example.com.http.conf` | nginx phase-1 (ACME challenge only). |
+| `deploy/remote.example.com.conf` | nginx phase-2 (HTTPS + WS proxy + gzip). |
 
 ## 2. Build the browser UI
 
@@ -87,15 +87,16 @@ systemctl is-active tedi-remote && curl -s http://127.0.0.1:8788/healthz   # -> 
 ## 6. nginx + TLS (certbot webroot)
 
 ```bash
+# Replace remote.example.com with YOUR domain throughout, then install.
 # phase 1: HTTP-only block so certbot can answer the ACME challenge
-sed 's/remote.ilhamriski.com/remote.example.com/g' deploy/remote.ilhamriski.com.http.conf \
-  | sudo tee /etc/nginx/conf.d/remote.example.com.conf
+sed 's/remote.example.com/<your-domain>/g' deploy/remote.example.com.http.conf \
+  | sudo tee /etc/nginx/conf.d/<your-domain>.conf
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot certonly --webroot -w /var/lib/letsencrypt -d remote.example.com
+sudo certbot certonly --webroot -w /var/lib/letsencrypt -d <your-domain>
 
 # phase 2: full HTTPS + WebSocket proxy + gzip
-sed 's/remote.ilhamriski.com/remote.example.com/g' deploy/remote.ilhamriski.com.conf \
-  | sudo tee /etc/nginx/conf.d/remote.example.com.conf
+sed 's/remote.example.com/<your-domain>/g' deploy/remote.example.com.conf \
+  | sudo tee /etc/nginx/conf.d/<your-domain>.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
 

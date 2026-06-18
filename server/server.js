@@ -295,8 +295,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== "POST") return json(res, 405, { ok: false });
     const auth = req.headers["authorization"] || "";
     if (!safeEqStr(auth, `Bearer ${AGENT_TOKEN}`)) return json(res, 401, { ok: false });
+    const now = Date.now();
+    for (const [k, exp] of agentTickets) if (exp <= now) agentTickets.delete(k);
+    if (agentTickets.size > 100) return json(res, 429, { ok: false, error: "too many tickets" });
     const ticket = crypto.randomBytes(18).toString("base64url");
-    agentTickets.set(ticket, Date.now() + 60_000);
+    agentTickets.set(ticket, now + 60_000);
     return json(res, 200, { ok: true, ticket });
   }
 

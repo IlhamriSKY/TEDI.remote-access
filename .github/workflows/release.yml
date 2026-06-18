@@ -129,8 +129,10 @@ jobs:
           ver="${{ steps.ver.outputs.version }}"
           ext="dist/tedi.remote-access-${ver}.zip"
           zip -r "$ext" manifest.json extension.js icon.png README.md CHANGELOG.md LICENSE sidecar
-          relay="dist/tedi-remote-relay-${ver}.zip"
-          ( cd server && zip -r "../$relay" server.js package.json package-lock.json gen-hash.js public deploy README.md )
+          # Relay bundle ships as .tar.gz (NOT .zip) so the extension .zip is the
+          # only .zip asset; TEDI's installer picks the first .zip in the release.
+          relay="dist/tedi-remote-relay-${ver}.tar.gz"
+          tar -czf "$relay" -C server server.js package.json package-lock.json gen-hash.js public deploy README.md
           unzip -l "$ext"
           echo "ext=$ext"     >> "$GITHUB_OUTPUT"
           echo "relay=$relay" >> "$GITHUB_OUTPUT"
