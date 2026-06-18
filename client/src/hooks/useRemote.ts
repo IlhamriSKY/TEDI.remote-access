@@ -3,14 +3,36 @@ import { Terminal } from "@xterm/xterm";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 
 import { b64ToBytes, strToB64 } from "@/lib/b64";
-import { TERMINAL_FONT, TERMINAL_THEME, type ServerFrame, type SessionMeta } from "@/lib/protocol";
+import {
+  TERMINAL_FONT,
+  TERMINAL_THEME_DARK,
+  TERMINAL_THEME_LIGHT,
+  type ServerFrame,
+  type SessionMeta,
+  type ThemeName,
+} from "@/lib/protocol";
 
 export type ConnState = "connecting" | "open" | "closed";
 
 type TermEntry = { term: Terminal; el: HTMLElement };
 
 const FONT_KEY = "tedi-remote-fontsize";
+const THEME_KEY = "tedi-remote-theme";
 const clampFont = (n: number) => Math.min(28, Math.max(8, n || 13));
+
+function getInitialTheme(): ThemeName {
+  try {
+    const t = localStorage.getItem(THEME_KEY);
+    if (t === "light" || t === "dark") return t;
+  } catch {
+    /* ignore */
+  }
+  return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+const termTheme = (t: ThemeName) => (t === "dark" ? TERMINAL_THEME_DARK : TERMINAL_THEME_LIGHT);
 
 export type Remote = ReturnType<typeof useRemote>;
 
@@ -24,11 +46,17 @@ export function useRemote() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(() => clampFont(Number(localStorage.getItem(FONT_KEY))));
   const [ctrlSticky, setCtrlSticky] = useState(false);
+  const [user, setUser] = useState("");
+  const [theme, setThemeState] = useState<ThemeName>(getInitialTheme);
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
 
   const wsRef = useRef<WebSocket | null>(null);
   const terms = useRef<Map<string, TermEntry>>(new Map());
   const activeIdRef = useRef<string | null>(null);
   const ctrlRef = useRef(false);
+  const themeRef = useRef<ThemeName>(theme);
+  const busyRef = useRef<Map<string, boolean>>(new Map());
+  const idleTimers = useRef<Map<string, number>>(new Map());
   const pending = useRef<Map<string, Uint8Array[]>>(new Map());
   const reconnectMs = useRef(1000);
   const hbTimer = useRef<number | null>(null);
@@ -54,6 +82,36 @@ export function useRemote() {
     }
   }, []);
 
+  // Per-tab "CLI running" state. Going busy is immediate; going idle is
+  // debounced so a fast run of commands doesn't flicker the indicator.
+  const setBusyVal = useCallback((id: string, val: boolean) => {
+    const timers = idleTimers.current;
+    if (val) {
+      const t = timers.get(id);
+      if (t) {
+        window.clearTimeout(t);
+        timers.delete(id);
+      }
+      if (busyRef.current.get(id) !== true) {
+        busyRef.current.set(id, true);
+        setBusy((prev) => ({ ...prev, [id]: true }));
+      }
+    } else {
+      const t = timers.get(id);
+      if (t) window.clearTimeout(t);
+      timers.set(
+        id,
+        window.setTimeout(() => {
+          timers.delete(id);
+          if (busyRef.current.get(id) !== false) {
+            busyRef.current.set(id, false);
+            setBusy((prev) => ({ ...prev, [id]: false }));
+          }
+        }, 350),
+      );
+    }
+  }, []);
+
   const attachTerminal = useCallback(
     (id: string, el: HTMLElement, meta?: SessionMeta) => {
       const entry = terms.current.get(id);
@@ -69,7 +127,7 @@ export function useRemote() {
         rows: meta?.rows ?? 24,
         fontSize,
         fontFamily: TERMINAL_FONT,
-        theme: TERMINAL_THEME,
+        theme: termTheme(themeRef.current),
         cursorBlink: true,
         scrollback: 8000,
         convertEol: false,
@@ -79,6 +137,19 @@ export function useRemote() {
         term.loadAddon(new WebLinksAddon());
       } catch {
         /* non-fatal */
+      }
+      // OSC 133 (shell integration) marks command boundaries: C = output start
+      // (a command is running), A/B/D = prompt / typed / done (idle). Drives the
+      // per-tab "CLI running" indicator. Returns false so xterm keeps parsing.
+      try {
+        term.parser.registerOscHandler(133, (data) => {
+          const k = data.charAt(0);
+          if (k === "C") setBusyVal(id, true);
+          else if (k === "A" || k === "B" || k === "D") setBusyVal(id, false);
+          return false;
+        });
+      } catch {
+        /* OSC handler unsupported -> no running indicator for this term */
       }
       term_open(term, el);
       term.onData((data) => {
@@ -109,6 +180,18 @@ export function useRemote() {
       terms.current.delete(id);
     }
     pending.current.delete(id);
+    const t = idleTimers.current.get(id);
+    if (t) {
+      window.clearTimeout(t);
+      idleTimers.current.delete(id);
+    }
+    if (busyRef.current.delete(id)) {
+      setBusy((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
   }, []);
 
   const focusActive = useCallback(() => {
@@ -258,6 +341,7 @@ export function useRemote() {
           body: JSON.stringify({ user, pass, otp }),
         });
         if (r.ok) {
+          setUser(user);
           setAuthed(true);
           connect();
           return { ok: true };
@@ -287,8 +371,9 @@ export function useRemote() {
       try {
         const r = await fetch("/api/me", { credentials: "same-origin" });
         if (r.ok) {
-          const j = (await r.json()) as { totp?: boolean };
+          const j = (await r.json()) as { totp?: boolean; user?: string };
           setTotpRequired(!!j.totp);
+          if (j.user) setUser(j.user);
           setAuthed(true);
           connect();
         } else {
@@ -318,6 +403,29 @@ export function useRemote() {
   }, [fontSize]);
 
   const bumpFont = useCallback((delta: number) => setFontSize((f) => clampFont(f + delta)), []);
+
+  // Theme: persist, toggle the <html class="dark">, and re-theme every live term.
+  const setTheme = useCallback((t: ThemeName) => {
+    setThemeState(t);
+    themeRef.current = t;
+    try {
+      localStorage.setItem(THEME_KEY, t);
+    } catch {
+      /* ignore */
+    }
+    document.documentElement.classList.toggle("dark", t === "dark");
+    const th = termTheme(t);
+    for (const { term } of terms.current.values()) term.options.theme = th;
+  }, []);
+  const toggleTheme = useCallback(
+    () => setTheme(themeRef.current === "dark" ? "light" : "dark"),
+    [setTheme],
+  );
+  // Ensure the class matches state on mount (the index.html inline script sets
+  // it pre-paint to avoid a flash; this is belt-and-braces).
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", themeRef.current === "dark");
+  }, []);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -352,6 +460,11 @@ export function useRemote() {
     sendToActive,
     ctrlSticky,
     setCtrlSticky,
+    user,
+    theme,
+    setTheme,
+    toggleTheme,
+    busy,
     login,
     logout,
   };

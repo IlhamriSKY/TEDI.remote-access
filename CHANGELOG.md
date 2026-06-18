@@ -2,6 +2,18 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.3.0] - 2026-06-19
+
+- **Browser UI refresh.** Light + dark themes (system-aware, persisted, no
+  flash of the wrong palette) with a one-click toggle that re-themes every live
+  terminal. A minimal header shows the signed-in user (avatar + name) with a
+  dropdown for text size and sign-out.
+- **CLI-running indicator.** Each tab's icon shows whether a command is running
+  in that terminal (amber + gentle breathe, driven by OSC 133 shell-integration
+  command markers) and goes idle otherwise.
+- Responsive polish across login, header, tab bar, terminal, and the mobile
+  helper-key bar; all components adapt to both themes.
+
 ## [0.2.0] - 2026-06-19
 
 - **SSH tab mirroring.** SSH tabs you open in TEDI now mirror to the browser

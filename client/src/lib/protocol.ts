@@ -19,8 +19,8 @@ export type ServerFrame =
   | { t: "exit"; id: string; code: number }
   | { t: "pong" };
 
-// xterm theme mirroring TEDI's dark ANSI palette (globals.css --tedi-ansi-*).
-export const TERMINAL_THEME = {
+// xterm themes mirroring TEDI's dark + light ANSI palettes (globals.css).
+export const TERMINAL_THEME_DARK = {
   background: "#1e1e1e",
   foreground: "#cccccc",
   cursor: "#cccccc",
@@ -43,5 +43,31 @@ export const TERMINAL_THEME = {
   brightCyan: "#22d3ee",
   brightWhite: "#fafafa",
 } as const;
+
+export const TERMINAL_THEME_LIGHT = {
+  background: "#ffffff",
+  foreground: "#1e2227",
+  cursor: "#1e2227",
+  cursorAccent: "#ffffff",
+  selectionBackground: "#add6ff",
+  black: "#3f3f46",
+  red: "#dc2626",
+  green: "#16a34a",
+  yellow: "#b08800",
+  blue: "#2563eb",
+  magenta: "#9333ea",
+  cyan: "#0891b2",
+  white: "#a1a1aa",
+  brightBlack: "#71717a",
+  brightRed: "#ef4444",
+  brightGreen: "#22c55e",
+  brightYellow: "#ca8a04",
+  brightBlue: "#3b82f6",
+  brightMagenta: "#a855f7",
+  brightCyan: "#06b6d4",
+  brightWhite: "#52525b",
+} as const;
+
+export type ThemeName = "light" | "dark";
 
 export const TERMINAL_FONT = '"JetBrains Mono", ui-monospace, Menlo, Consolas, "Courier New", monospace';

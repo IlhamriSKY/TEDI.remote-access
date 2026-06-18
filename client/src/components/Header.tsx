@@ -1,7 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import { IconFontDown, IconFontUp, IconLogout, IconSpin } from "@/lib/icons";
+import { IconLogout, IconMoon, IconSpin, IconSun } from "@/lib/icons";
 import { IconButton } from "@/components/IconButton";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Remote } from "@/hooks/useRemote";
@@ -9,6 +18,7 @@ import type { Remote } from "@/hooks/useRemote";
 export function Header({ remote }: { remote: Remote }) {
   const connecting = remote.conn !== "open";
   const online = remote.hostOnline && !connecting;
+  const dark = remote.theme === "dark";
 
   return (
     <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-sidebar px-2">
@@ -19,10 +29,12 @@ export function Header({ remote }: { remote: Remote }) {
       </span>
 
       <div className="ml-auto flex items-center gap-0.5">
-        <IconButton icon={IconFontDown} label="Smaller text" onClick={() => remote.bumpFont(-1)} />
-        <IconButton icon={IconFontUp} label="Larger text" onClick={() => remote.bumpFont(1)} />
-        <span className="mx-1 h-5 w-px bg-border" aria-hidden />
-        <IconButton icon={IconLogout} label="Sign out" onClick={() => void remote.logout()} />
+        <IconButton
+          icon={dark ? IconSun : IconMoon}
+          label={dark ? "Light mode" : "Dark mode"}
+          onClick={remote.toggleTheme}
+        />
+        <UserMenu remote={remote} />
       </div>
     </header>
   );
@@ -43,5 +55,50 @@ function StatusDot({ online, connecting }: { online: boolean; connecting: boolea
       </TooltipTrigger>
       <TooltipContent side="bottom">{title}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function UserMenu({ remote }: { remote: Remote }) {
+  const user = remote.user || "user";
+  const initial = (user[0] || "?").toUpperCase();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex h-8 items-center gap-1.5 border border-transparent px-1 text-xs text-foreground transition-colors hover:bg-muted focus-visible:border-ring focus-visible:outline-none"
+          aria-label="Account menu"
+        >
+          <span className="flex size-6 items-center justify-center bg-accent text-[11px] font-semibold text-accent-foreground uppercase">
+            {initial}
+          </span>
+          <span className="hidden max-w-[120px] truncate sm:inline">{user}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuLabel>Signed in as</DropdownMenuLabel>
+        <div className="truncate px-2.5 pb-1.5 text-xs font-medium text-foreground">{user}</div>
+        <DropdownMenuSeparator />
+        <div className="flex items-center justify-between px-2.5 py-1.5">
+          <span className="text-xs text-muted-foreground">Text size</span>
+          <span className="flex items-center gap-1">
+            <Button variant="outline" size="icon-xs" aria-label="Smaller" onClick={() => remote.bumpFont(-1)}>
+              A-
+            </Button>
+            <span className="w-6 text-center text-[11px] tabular-nums text-muted-foreground">{remote.fontSize}</span>
+            <Button variant="outline" size="icon-xs" aria-label="Larger" onClick={() => remote.bumpFont(1)}>
+              A+
+            </Button>
+          </span>
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+          onSelect={() => void remote.logout()}
+        >
+          <HugeiconsIcon icon={IconLogout} size={14} strokeWidth={1.8} />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

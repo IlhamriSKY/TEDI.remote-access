@@ -12,4 +12,6 @@ export {
   SquareLock02Icon as IconLock,
   Loading03Icon as IconSpin,
   Cancel01Icon as IconClose,
+  Sun01Icon as IconSun,
+  Moon02Icon as IconMoon,
 } from "@hugeicons/core-free-icons";

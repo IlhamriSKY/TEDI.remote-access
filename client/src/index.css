@@ -5,9 +5,10 @@
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/700.css";
 
-/* TEDI design tokens (VSCode Dark+ retinted to logo blue #0057fe). The remote
- * is dark-only, so the dark palette lives directly in :root. Radius is forced
- * to 0 everywhere, matching TEDI's fully-squared UI. Borders are 1px. */
+/* TEDI design tokens, light + dark. Radius is forced to 0 (fully boxed UI like
+ * TEDI); borders are 1px. `.dark` on <html> selects the dark palette. */
+@custom-variant dark (&:is(.dark *));
+
 @theme inline {
   --font-sans: "Inter Variable", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "Courier New", monospace;
@@ -44,7 +45,34 @@
   --radius-4xl: 0px;
 }
 
+/* Light (default) */
 :root {
+  --background: #ffffff;
+  --foreground: #1e2227;
+  --card: #ffffff;
+  --card-foreground: #1e2227;
+  --popover: #ffffff;
+  --popover-foreground: #1e2227;
+  --primary: #0057fe;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f3f5;
+  --secondary-foreground: #1e2227;
+  --muted: #f3f4f6;
+  --muted-foreground: #687076;
+  --accent: #dbe5ff;
+  --accent-foreground: #0a2870;
+  --destructive: #dc2626;
+  --border: #e4e7eb;
+  --input: #e4e7eb;
+  --ring: #0057fe;
+  --sidebar: #f7f8fa;
+  --success: #059669;
+  --warning: #ca8a04;
+  --tab-terminal: #10b981;
+}
+
+/* Dark (VSCode Dark+ retinted to logo blue) */
+.dark {
   --background: #1e1e1e;
   --foreground: #cccccc;
   --card: #1f1f1f;
@@ -74,7 +102,6 @@
   *::before,
   *::after {
     border-color: var(--border);
-    /* Force-zero every radius to guarantee a fully boxed UI, like TEDI. */
     border-radius: 0 !important;
   }
   html,
@@ -96,7 +123,7 @@
   }
 }
 
-/* Boxy 10px scrollbars (TEDI parity). */
+/* Boxy 10px scrollbars that adapt to theme. */
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -129,4 +156,23 @@
   width: 0;
   height: 0;
   display: none;
+}
+
+/* Gentle "breathing" pulse for the running-CLI tab indicator (like TEDI). */
+@keyframes tedi-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-breathe {
+  animation: tedi-breathe 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-breathe {
+    animation: none;
+  }
 }

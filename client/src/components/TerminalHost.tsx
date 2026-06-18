@@ -18,7 +18,7 @@ export function TerminalHost({ remote }: { remote: Remote }) {
   }, [activeId, focusActive]);
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-[#1e1e1e]" onPointerDown={focusActive}>
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-background" onPointerDown={focusActive}>
       {sessions.map((s) => (
         <div
           key={s.id}

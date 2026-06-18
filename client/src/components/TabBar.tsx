@@ -22,6 +22,7 @@ export function TabBar({ remote }: { remote: Remote }) {
       {sessions.map((s) => {
         const active = s.id === activeId;
         const ssh = s.kind === "ssh";
+        const running = !!remote.busy[s.id];
         return (
           <button
             key={s.id}
@@ -46,7 +47,15 @@ export function TabBar({ remote }: { remote: Remote }) {
               icon={IconTerminal}
               size={13}
               strokeWidth={1.8}
-              className={active ? (ssh ? "text-[#38bdf8]" : "text-terminal") : "text-muted-foreground"}
+              className={cn(
+                running
+                  ? "animate-breathe text-warning"
+                  : active
+                    ? ssh
+                      ? "text-[#38bdf8]"
+                      : "text-terminal"
+                    : "text-muted-foreground",
+              )}
             />
             <span className="truncate">{s.title || (ssh ? "ssh" : "terminal")}</span>
             {ssh && (
