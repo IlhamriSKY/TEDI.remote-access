@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 
 import { b64ToBytes, strToB64 } from "@/lib/b64";
@@ -15,7 +14,7 @@ import {
 
 export type ConnState = "connecting" | "open" | "closed";
 
-type TermEntry = { term: Terminal; el: HTMLElement; fit: FitAddon };
+type TermEntry = { term: Terminal; el: HTMLElement };
 
 const FONT_KEY = "tedi-remote-fontsize";
 const THEME_KEY = "tedi-remote-theme";
@@ -76,7 +75,6 @@ export function useRemote() {
   const pendingNewIds = useRef<Set<string> | null>(null);
   const pendingNewTimer = useRef<number | null>(null);
   const fitRef = useRef(fit);
-  const lastFitSent = useRef<Map<string, string>>(new Map());
 
   const send = useCallback((obj: unknown) => {
     const ws = wsRef.current;
@@ -85,11 +83,6 @@ export function useRemote() {
 
   const sendInput = useCallback(
     (id: string, data: string) => send({ t: "input", id, b64: strToB64(data) }),
-    [send],
-  );
-
-  const sendResize = useCallback(
-    (id: string, cols: number, rows: number) => send({ t: "resize", id, cols, rows }),
     [send],
   );
 
@@ -153,9 +146,7 @@ export function useRemote() {
         convertEol: false,
         allowProposedApi: true,
       });
-      const fitAddon = new FitAddon();
       try {
-        term.loadAddon(fitAddon);
         term.loadAddon(new WebLinksAddon());
       } catch {
         /* non-fatal */
@@ -185,7 +176,7 @@ export function useRemote() {
         }
         sendInput(id, out);
       });
-      terms.current.set(id, { term, el, fit: fitAddon });
+      terms.current.set(id, { term, el });
       flushPending(id, term);
     },
     [fontSize, sendInput, flushPending],
@@ -202,7 +193,6 @@ export function useRemote() {
       terms.current.delete(id);
     }
     pending.current.delete(id);
-    lastFitSent.current.delete(id);
     const t = idleTimers.current.get(id);
     if (t) {
       window.clearTimeout(t);
@@ -227,37 +217,51 @@ export function useRemote() {
     }
   }, []);
 
-  // Fit mode: size the active terminal to its container and push that size to
-  // the host PTY (so a terminal split tiny on the desktop fills the browser).
-  // No-op unless fit mode is on. Deduped per session so we don't spam resizes.
-  const fitTerminal = useCallback(
-    (id: string | null) => {
-      if (!id || !fitRef.current) return;
-      const entry = terms.current.get(id);
-      if (!entry) return;
-      try {
-        entry.fit.fit();
-      } catch {
+  // "Fit to window" without ever touching the host PTY. The browser always
+  // mirrors the terminal at the host's REAL cols/rows (owned by the TEDI
+  // desktop); resizing the shared PTY from here would reflow the terminal inside
+  // the desktop app. So instead of resizing, we scale the rendered terminal with
+  // a CSS transform (the DOM renderer stays crisp at any scale) so it fills the
+  // browser pane. When fit is off we clear the transform and render 1:1 (the
+  // pane scrolls). Applied on the next frame so xterm has laid out first.
+  const fitTerminal = useCallback((id: string | null) => {
+    if (!id) return;
+    const entry = terms.current.get(id);
+    const node = entry?.term.element;
+    const host = entry?.el;
+    if (!entry || !node || !host) return;
+    if (!fitRef.current) {
+      node.style.transform = "";
+      node.style.transformOrigin = "";
+      return;
+    }
+    requestAnimationFrame(() => {
+      const live = terms.current.get(id);
+      if (!live || live.el !== host || !fitRef.current) return;
+      const el = live.term.element;
+      if (!el) return;
+      el.style.transformOrigin = "center center";
+      el.style.transform = "none"; // measure natural size at 1:1
+      const tw = el.offsetWidth;
+      const th = el.offsetHeight;
+      const cw = host.clientWidth;
+      const ch = host.clientHeight;
+      if (tw < 2 || th < 2 || cw < 2 || ch < 2) {
+        el.style.transform = "";
         return;
       }
-      const cols = entry.term.cols;
-      const rows = entry.term.rows;
-      if (cols < 2 || rows < 2) return;
-      const key = `${cols}x${rows}`;
-      if (lastFitSent.current.get(id) === key) return;
-      lastFitSent.current.set(id, key);
-      sendResize(id, cols, rows);
-    },
-    [sendResize],
-  );
+      el.style.transform = `scale(${Math.min(cw / tw, ch / th)})`;
+    });
+  }, []);
 
   // --- frame handling -----------------------------------------------------
   const writeScrollback = useCallback((id: string, b64: string, cols: number, rows: number) => {
     const bytes = b64 ? b64ToBytes(b64) : new Uint8Array(0);
     const entry = terms.current.get(id);
     if (entry) {
-      // In fit mode the browser owns the size; don't snap back to host dims.
-      if (!fitRef.current && (entry.term.cols !== cols || entry.term.rows !== rows)) {
+      // Always mirror the host PTY's real size; the browser never owns the size
+      // (it scales to fit instead), so the desktop terminal is never reflowed.
+      if (entry.term.cols !== cols || entry.term.rows !== rows) {
         try {
           entry.term.resize(cols, rows);
         } catch {
@@ -266,10 +270,11 @@ export function useRemote() {
       }
       entry.term.reset();
       if (bytes.length) entry.term.write(bytes);
+      fitTerminal(id);
     } else {
       pending.current.set(id, bytes.length ? [bytes] : []);
     }
-  }, []);
+  }, [fitTerminal]);
 
   const handleFrame = useCallback(
     (f: ServerFrame) => {
@@ -280,19 +285,19 @@ export function useRemote() {
           break;
         case "sessions": {
           const items = f.items;
-          // In fit mode the browser owns the size; don't snap to host dims.
-          if (!fitRef.current) {
-            for (const it of items) {
-              const e = terms.current.get(it.id);
-              if (e && (e.term.cols !== it.cols || e.term.rows !== it.rows)) {
-                try {
-                  e.term.resize(it.cols, it.rows);
-                } catch {
-                  /* ignore */
-                }
+          // Always mirror each host PTY's real size; the browser scales to fit
+          // and never resizes the shared PTY, so the desktop is never reflowed.
+          for (const it of items) {
+            const e = terms.current.get(it.id);
+            if (e && (e.term.cols !== it.cols || e.term.rows !== it.rows)) {
+              try {
+                e.term.resize(it.cols, it.rows);
+              } catch {
+                /* ignore */
               }
             }
           }
+          for (const it of items) fitTerminal(it.id);
           const live = new Set(items.map((i) => i.id));
           for (const id of [...terms.current.keys()]) if (!live.has(id)) disposeTerminal(id);
           setSessions(items);
@@ -340,7 +345,7 @@ export function useRemote() {
           break;
       }
     },
-    [disposeTerminal, writeScrollback],
+    [disposeTerminal, writeScrollback, fitTerminal],
   );
 
   // --- websocket lifecycle ------------------------------------------------
@@ -478,8 +483,8 @@ export function useRemote() {
   useEffect(() => {
     localStorage.setItem(FONT_KEY, String(fontSize));
     for (const { term } of terms.current.values()) term.options.fontSize = fontSize;
-    // Font change alters cell size, so re-fit (cols/rows shift) in fit mode.
-    fitTerminal(activeIdRef.current);
+    // Font change alters cell size, so re-scale every terminal in fit mode.
+    for (const id of terms.current.keys()) fitTerminal(id);
   }, [fontSize, fitTerminal]);
 
   const bumpFont = useCallback((delta: number) => setFontSize((f) => clampFont(f + delta)), []);
@@ -508,8 +513,8 @@ export function useRemote() {
     document.documentElement.classList.toggle("dark", themeRef.current === "dark");
   }, []);
 
-  // Fit mode: persist, mirror to the ref, and re-fit the active terminal when it
-  // turns on. When off, forget last-sent sizes so re-enabling re-pushes them.
+  // Fit mode: persist, mirror to the ref, and re-scale every live terminal
+  // (turning fit off clears their transforms; turning it on re-fits them).
   useEffect(() => {
     fitRef.current = fit;
     try {
@@ -517,8 +522,7 @@ export function useRemote() {
     } catch {
       /* ignore */
     }
-    if (fit) fitTerminal(activeIdRef.current);
-    else lastFitSent.current.clear();
+    for (const id of terms.current.keys()) fitTerminal(id);
   }, [fit, fitTerminal]);
   const toggleFit = useCallback(() => setFit((v) => !v), []);
 

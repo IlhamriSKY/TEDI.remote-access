@@ -8,11 +8,13 @@ import type { Remote } from "@/hooks/useRemote";
 // Every mirrored session keeps a mounted xterm so switching tabs is instant and
 // background terminals stay live. Inactive panes use `invisible
 // pointer-events-none` (visibility, not display:none) so xterm can still
-// measure glyph metrics correctly. In "fit to window" mode the active terminal
-// is sized to this container (and the host PTY follows); otherwise it
-// size-follows the host and scrolls when wider than the screen.
+// measure glyph metrics correctly. The browser always mirrors each terminal at
+// the host's real cols/rows. In "fit to window" mode the active terminal is
+// CSS-scaled (transform) to fill this container -- the host PTY is never resized,
+// so the desktop terminal is never reflowed; otherwise it renders 1:1 and the
+// pane scrolls when the terminal is larger than the screen.
 export function TerminalHost({ remote }: { remote: Remote }) {
-  const { sessions, activeId, attachTerminal, focusActive, fitTerminal } = remote;
+  const { sessions, activeId, fit, attachTerminal, focusActive, fitTerminal } = remote;
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,7 +51,10 @@ export function TerminalHost({ remote }: { remote: Remote }) {
             if (el) attachTerminal(s.id, el, s);
           }}
           className={cn(
-            "absolute inset-0 overflow-auto p-1.5",
+            "absolute inset-0",
+            // Fit mode centers the CSS-scaled terminal and clips the overflow;
+            // otherwise render 1:1 and let the pane scroll.
+            fit ? "flex items-center justify-center overflow-hidden" : "overflow-auto p-1.5",
             s.id === activeId ? "visible z-10" : "invisible pointer-events-none",
           )}
         />

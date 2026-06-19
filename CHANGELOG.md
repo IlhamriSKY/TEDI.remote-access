@@ -2,6 +2,16 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.7.4] - 2026-06-19
+
+- **"Fit to window" no longer disturbs your desktop terminal.** Before, fitting
+  the browser view resized the shared host PTY, which reflowed the matching
+  terminal inside the TEDI desktop app (and any SSH tab it mirrored). Now the
+  browser always mirrors each terminal at the host's real size and "fit to
+  window" just scales the view with a CSS transform, so the website fills the
+  screen while the desktop stays tidy. The agent and SSH bridge also ignore
+  browser resize requests now, so nothing on the website can reflow the desktop.
+
 ## [0.7.3] - 2026-06-19
 
 - **Change your password from the browser.** The account menu now has a "Change

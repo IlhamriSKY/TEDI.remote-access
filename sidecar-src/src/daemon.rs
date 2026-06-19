@@ -221,7 +221,11 @@ impl DaemonClient {
         }
     }
 
-    /// Resize a session's PTY (the browser "fit to window" path).
+    /// Resize a session's PTY. No longer called: the browser mirrors at the
+    /// host's real size and scales to fit client-side, so it never resizes the
+    /// shared PTY (which would reflow the desktop terminal). Kept for protocol
+    /// completeness.
+    #[allow(dead_code)]
     pub async fn resize(&self, id: Uuid, cols: u16, rows: u16) -> Result<(), String> {
         match self
             .request(|rid| ClientMsg::Resize { req_id: rid, session_id: id, cols, rows })

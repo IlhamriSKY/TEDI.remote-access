@@ -111,7 +111,7 @@ function UserMenu({ remote, onChangePassword }: { remote: Remote; onChangePasswo
             size="xs"
             aria-pressed={remote.fit}
             onClick={remote.toggleFit}
-            title="Fill the browser with the active terminal (resizes the host)"
+            title="Scale the active terminal to fill the browser (does not resize the host)"
             className={cn("w-10", remote.fit && "border-primary/60 text-foreground")}
           >
             {remote.fit ? "On" : "Off"}

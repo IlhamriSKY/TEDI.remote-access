@@ -380,11 +380,11 @@ function handleSshRelayFrame(ctx, m) {
     if (!Number.isNaN(id) && m.b64) {
       ctx.invoke("ssh_write", { id, data: b64ToStr(m.b64) }).catch(() => {});
     }
-  } else if (m.t === "resize" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
-    const id = parseInt(m.id.slice(4), 10);
-    if (!Number.isNaN(id)) {
-      ctx.invoke("ssh_resize", { id, cols: m.cols | 0, rows: m.rows | 0 }).catch(() => {});
-    }
+  } else if (m.t === "resize") {
+    // Ignored. The browser mirrors each tab at the host's real size and scales
+    // to fit client-side, so it never sends resize. A mirrored SSH tab is the
+    // same PTY the desktop shows, so resizing it here would reflow the desktop's
+    // SSH terminal -- exactly what we avoid (mirrors the agent's no-op resize).
   } else if (m.t === "client_join") {
     // Re-publish the session list (no re-attach: that would add a duplicate
     // sink). SSH late-joiners get live output, not replayed scrollback.
