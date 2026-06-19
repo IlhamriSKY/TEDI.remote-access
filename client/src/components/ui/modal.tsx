@@ -73,10 +73,11 @@ export function ModalBody({ children, className }: { children: ReactNode; classN
   return <div className={cn("flex flex-col gap-3 p-4", className)}>{children}</div>;
 }
 
-/** Right-aligned action row with a top divider. Use inside <Modal>. */
+/** Action row with a top divider. Buttons stretch full-width (each an equal
+ *  share of the row) rather than sitting small in the corner. Use inside <Modal>. */
 export function ModalFooter({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("flex items-center justify-end gap-2 border-t border-border px-4 py-3", className)}>
+    <div className={cn("flex items-center gap-2 border-t border-border px-4 py-3 [&>*]:flex-1", className)}>
       {children}
     </div>
   );

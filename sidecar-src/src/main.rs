@@ -233,12 +233,28 @@ async fn handle_browser_frame(
             }
         }
         "resize" => {
-            // Intentionally ignored. The browser mirrors each PTY at its REAL
-            // size (owned by the TEDI desktop) and "fit to window" scales the
-            // rendering client-side with a CSS transform, so the browser never
-            // resizes the shared daemon PTY. Resizing it from here would reflow
-            // the terminal inside the desktop app -- exactly what we must avoid.
-            // (SSH ids are handled separately by the SSH bridge's ssh_resize.)
+            // "Fit host to my screen" in the browser: resize the owned daemon PTY
+            // so its output is produced at the browser's width (the browser can be
+            // far larger than a small desktop split pane). This DOES reflow the
+            // shared terminal in the desktop app -- that is the deliberate
+            // trade-off for a full-size remote view; the browser only sends resize
+            // when the user keeps "fit host" on. Spawned so a slow daemon resize
+            // never stalls the read loop. (SSH ids -> the bridge's ssh_resize.)
+            if let (Some(id), Some(cols), Some(rows)) = (
+                v.get("id").and_then(parse_uuid),
+                v.get("cols").and_then(|x| x.as_u64()),
+                v.get("rows").and_then(|x| x.as_u64()),
+            ) {
+                let owned = sessions.lock().unwrap().contains_key(&id);
+                if owned {
+                    let daemon = daemon.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = daemon.resize(id, cols as u16, rows as u16).await {
+                            eprintln!("[agent] resize {id} failed: {e}");
+                        }
+                    });
+                }
+            }
         }
         "open" => {
             // "New tab from the browser": ask the daemon to spawn a fresh PTY.

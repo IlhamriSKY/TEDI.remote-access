@@ -60,13 +60,12 @@ export function TerminalHost({ remote }: { remote: Remote }) {
           className={cn(
             // Near-full-bleed (a 6px inset for breathing room). The inset is set
             // via positioning, not padding, so clientWidth/Height measure the
-            // real available box and the fit-mode scale math stays correct. Fit
-            // mode then scales to nearly the full viewport, decoupled from the
-            // host pane's size.
+            // real available box (proposeDims / scale math need the true size).
             "absolute inset-1.5",
-            // Fit mode centers the CSS-scaled terminal and clips the overflow;
-            // otherwise render 1:1 and let the pane scroll.
-            fit ? "flex items-center justify-center overflow-hidden" : "overflow-auto",
+            // fit ON ("fit host to my screen"): the xterm is sized to fill this
+            // box, so just clip. fit OFF (mirror): the xterm is at the host size
+            // and CSS-scaled, so center it and clip the overflow.
+            fit ? "overflow-hidden" : "flex items-center justify-center overflow-hidden",
             s.id === activeId ? "visible z-10" : "invisible pointer-events-none",
           )}
         />

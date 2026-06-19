@@ -274,6 +274,10 @@ let sshAttached = new Set(); // numeric ssh session ids we've attached
 let sshPollTimer = null;
 let sshReconnectTimer = null;
 let sshStop = false;
+// Desktop tab numbers (terminalOrdinal) keyed by daemon ptyId, from ctx.app
+// context. Mirrored to the browser over the relay so its tabs match the app.
+let tabMeta = [];
+let tabMetaUnsub = null;
 
 function httpBaseFromRelay(relayUrl) {
   try {
@@ -296,6 +300,11 @@ function sshSend(obj) {
       /* ignore */
     }
   }
+}
+
+// Push the desktop tab numbers to the browser (no-op until the relay WS is up).
+function sendTabMeta() {
+  sshSend({ t: "tabmeta", items: tabMeta });
 }
 
 async function startSshBridge(ctx, relayUrl, token) {
@@ -360,6 +369,7 @@ async function connectSshRelay(ctx, relayUrl, token) {
     if (sshPollTimer) clearInterval(sshPollTimer);
     sshPollTimer = setInterval(() => pollSsh(ctx), 2000);
     pollSsh(ctx);
+    sendTabMeta(); // mirror the current desktop tab numbers to the browser
   };
   ws.onmessage = (ev) => {
     let m;
@@ -452,15 +462,22 @@ function handleSshRelayFrame(ctx, m) {
       // browser the tab is dead now (the next pollSsh authoritatively drops it).
       sshSend({ t: "exit", id: m.id, code: 0 });
     }
-  } else if (m.t === "resize") {
-    // Ignored. The browser mirrors each tab at the host's real size and scales
-    // to fit client-side, so it never sends resize. A mirrored SSH tab is the
-    // same PTY the desktop shows, so resizing it here would reflow the desktop's
-    // SSH terminal -- exactly what we avoid (mirrors the agent's no-op resize).
+  } else if (m.t === "resize" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
+    // Browser "fit host to my screen": resize the SSH PTY so its output matches
+    // the browser width. This reflows the same SSH terminal in the desktop app --
+    // the intended trade-off for a full-size remote view (mirrors the native
+    // agent's daemon resize).
+    const id = parseInt(m.id.slice(4), 10);
+    const cols = m.cols | 0;
+    const rows = m.rows | 0;
+    if (!Number.isNaN(id) && cols > 0 && rows > 0) {
+      ctx.invoke("ssh_resize", { id, cols, rows }).catch(() => {});
+    }
   } else if (m.t === "client_join") {
     // Re-publish the session list (no re-attach: that would add a duplicate
     // sink). SSH late-joiners get live output, not replayed scrollback.
     pollSsh(ctx);
+    sendTabMeta(); // give the new browser the desktop tab numbers
   } else if (m.t === "ping") {
     sshSend({ t: "pong" });
   }
@@ -476,10 +493,33 @@ export async function activate(ctx) {
     ctx.settings.onChange(key, scheduleRestart);
   }
 
+  // Mirror the desktop tab numbers (terminalOrdinal) to the browser so its tabs
+  // match the app. The map arrives via the host app-context bridge and is sent
+  // over the relay by the SSH-bridge connection. No-op on older TEDI builds that
+  // don't expose ctx.app / the terminals field.
+  try {
+    if (ctx.app && typeof ctx.app.onContextChange === "function") {
+      tabMetaUnsub = ctx.app.onContextChange((c) => {
+        tabMeta = c && Array.isArray(c.terminals) ? c.terminals : [];
+        sendTabMeta();
+      });
+    }
+  } catch {
+    /* ctx.app unavailable on this TEDI build */
+  }
+
   await startAgent();
 }
 
 export async function deactivate() {
   if (restartTimer) clearTimeout(restartTimer);
+  if (tabMetaUnsub) {
+    try {
+      tabMetaUnsub();
+    } catch {
+      /* ignore */
+    }
+    tabMetaUnsub = null;
+  }
   await stopAgent();
 }

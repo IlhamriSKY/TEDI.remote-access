@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import { IconTerminal, IconAdd, IconClose } from "@/lib/icons";
+import { IconTerminal, IconSsh, IconAdd, IconClose } from "@/lib/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -84,16 +84,10 @@ export function TabBar({ remote }: { remote: Remote }) {
                   active ? "font-medium text-foreground" : "text-muted-foreground group-hover:text-foreground",
                 )}
               >
-                <span
-                  className={cn(
-                    "shrink-0 text-[10px] tabular-nums",
-                    active ? accent : "text-muted-foreground/70",
-                  )}
-                >
-                  {idx + 1}
-                </span>
+                {/* Order: icon -> number -> title, matching the desktop tab chip.
+                    Icon mirrors the app (cloud for SSH, computer-terminal for local). */}
                 <HugeiconsIcon
-                  icon={IconTerminal}
+                  icon={ssh ? IconSsh : IconTerminal}
                   size={13}
                   strokeWidth={1.8}
                   className={cn(
@@ -101,12 +95,10 @@ export function TabBar({ remote }: { remote: Remote }) {
                     running ? "animate-breathe text-warning" : active ? accent : "text-muted-foreground",
                   )}
                 />
+                <span className={cn("shrink-0 text-[10px] tabular-nums", active ? accent : "text-muted-foreground/70")}>
+                  {remote.ordinals[s.id] ?? idx + 1}
+                </span>
                 <span className="min-w-0 flex-1 truncate text-left">{tabLabel(s)}</span>
-                {ssh && (
-                  <span className="shrink-0 border border-[#38bdf8]/40 px-1 text-[9px] leading-[1.4] tracking-wide text-[#38bdf8] uppercase">
-                    ssh
-                  </span>
-                )}
                 {!s.alive && <span className="shrink-0 text-[10px] text-muted-foreground">exited</span>}
               </button>
               <button

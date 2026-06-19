@@ -41,11 +41,7 @@ export function Header({ remote }: { remote: Remote }) {
             onClick={remote.toggleTheme}
           />
           <IconButton icon={IconSettings} label="Settings" onClick={() => setSettingsOpen(true)} />
-          <UserMenu
-            remote={remote}
-            onChangePassword={() => setPwOpen(true)}
-            onOpenSettings={() => setSettingsOpen(true)}
-          />
+          <UserMenu remote={remote} onChangePassword={() => setPwOpen(true)} />
         </div>
       </header>
       {settingsOpen && <SettingsModal remote={remote} onClose={() => setSettingsOpen(false)} />}
@@ -80,11 +76,9 @@ function OnlineIndicator({ online, connecting }: { online: boolean; connecting: 
 function UserMenu({
   remote,
   onChangePassword,
-  onOpenSettings,
 }: {
   remote: Remote;
   onChangePassword: () => void;
-  onOpenSettings: () => void;
 }) {
   const user = remote.user || "user";
   const initial = (user[0] || "?").toUpperCase();
@@ -105,10 +99,6 @@ function UserMenu({
         <DropdownMenuLabel>Signed in as</DropdownMenuLabel>
         <div className="truncate px-2.5 pb-1.5 text-xs font-medium text-foreground">{user}</div>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => onOpenSettings()}>
-          <HugeiconsIcon icon={IconSettings} size={14} strokeWidth={1.8} />
-          Settings
-        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onChangePassword()}>
           <HugeiconsIcon icon={IconLock} size={14} strokeWidth={1.8} />
           Change password

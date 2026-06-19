@@ -9,7 +9,7 @@ export type SessionMeta = {
   alive: boolean;
   /** "pty" (local terminal, default) or "ssh" (remote SSH tab). */
   kind?: SessionKind;
-  /** Host creation time (ms). Drives stable tab order + numbering. */
+  /** Host creation time (ms). Drives stable tab order. */
   createdAt?: number;
 };
 
@@ -19,7 +19,10 @@ export type ServerFrame =
   | { t: "attached"; id: string; scrollback: string; cols: number; rows: number; alive: boolean }
   | { t: "data"; id: string; b64: string }
   | { t: "exit"; id: string; code: number }
-  | { t: "pong" };
+  | { t: "pong" }
+  // Sent by the host extension (via the relay): the desktop app's tab numbers
+  // keyed by daemon ptyId, so the browser labels tabs the same as the app.
+  | { t: "tabmeta"; items: { ptyId: string; ordinal: number }[] };
 
 // Frames the browser SENDS to the relay (forwarded to the host agent + SSH
 // bridge), built inline via `send` in useRemote:

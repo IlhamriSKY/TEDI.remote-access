@@ -2,6 +2,23 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.3] - 2026-06-19
+
+- **Web terminals stay full-size even when the app pane is tiny.** New "Fit host
+  to my screen" (on by default): the browser measures its viewport and resizes
+  the host terminal to fill it, so a terminal is big in the browser even when
+  it's a small split pane on the desktop. Turn it off to mirror the desktop's
+  size and scale instead (the old behavior, never touches the app).
+- **Tabs match the desktop app.** Each tab shows the app's real tab number
+  (`terminalOrdinal`, pushed from the host) instead of its position; the icon
+  matches the tab type (computer-terminal for local, cloud for SSH); the layout
+  is icon -> number -> title.
+- **Simpler header + dialogs.** Dropped the duplicate "Settings" entry from the
+  account menu (the gear already opens it) and the light/dark control from
+  Settings (still on the header). Modal buttons are now full-width.
+- (Requires TEDI app >= 0.3.48 for the exact tab numbering; older apps fall back
+  to position numbers.)
+
 ## [0.8.2] - 2026-06-19
 
 - **Numbered, reorderable tabs.** Each browser tab now shows its position number

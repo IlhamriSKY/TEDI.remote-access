@@ -1,6 +1,9 @@
 // Single source of truth for the Hugeicons we use, aliased to semantic names.
+// Terminal/SSH glyphs mirror the desktop app's LeafIcon (ComputerTerminal02Icon
+// for local terminals, CloudServerIcon for SSH) so the web tabs match.
 export {
-  TerminalIcon as IconTerminal,
+  ComputerTerminal02Icon as IconTerminal,
+  CloudServerIcon as IconSsh,
   Logout01Icon as IconLogout,
   PlusSignIcon as IconFontUp,
   PlusSignIcon as IconAdd,

@@ -14,7 +14,7 @@ export function SettingsModal({ remote, onClose }: { remote: Remote; onClose: ()
   return (
     <Modal title="Settings" onClose={onClose} className="max-w-md">
       <ModalBody className="gap-0 p-0">
-        <Section title="Terminal">
+        <Section title="Terminal" last>
           <Row label="Font">
             <select
               value={remote.fontFamily}
@@ -56,7 +56,10 @@ export function SettingsModal({ remote, onClose }: { remote: Remote; onClose: ()
             />
           </Row>
 
-          <Row label="Fit to window" hint="Scale the view to fill the screen. Never resizes the terminal on your PC.">
+          <Row
+            label="Fit host to my screen"
+            hint="On: resize the host terminal to fill this screen (big even when the app pane is small). Off: mirror the desktop's size and scale to fit."
+          >
             <Button
               variant="outline"
               size="xs"
@@ -66,19 +69,6 @@ export function SettingsModal({ remote, onClose }: { remote: Remote; onClose: ()
             >
               {remote.fit ? "On" : "Off"}
             </Button>
-          </Row>
-        </Section>
-
-        <Section title="Appearance" last>
-          <Row label="Theme">
-            <Segmented
-              options={[
-                { label: "Light", value: "light" },
-                { label: "Dark", value: "dark" },
-              ]}
-              isActive={(v) => remote.theme === v}
-              onSelect={(v) => remote.setTheme(v as "light" | "dark")}
-            />
           </Row>
         </Section>
       </ModalBody>
