@@ -55,7 +55,12 @@ function StatusDot({ online, connecting }: { online: boolean; connecting: boolea
           {connecting ? (
             <HugeiconsIcon icon={IconSpin} size={13} className="animate-spin text-warning" strokeWidth={2} />
           ) : (
-            <span className={cn("inline-block size-2.5", online ? "bg-success" : "bg-destructive")} />
+            <span
+              className={cn(
+                "inline-block size-2.5 ring-2",
+                online ? "bg-success ring-success/25" : "bg-destructive ring-destructive/20",
+              )}
+            />
           )}
         </span>
       </TooltipTrigger>

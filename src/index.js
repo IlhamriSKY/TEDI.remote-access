@@ -32,6 +32,41 @@ let ctxRef = null;
 let handle = null;
 let booting = false;
 
+// Live status the bar reflects: whether the agent reached the relay, how many
+// browsers are attached (reported by the agent on stdout as `CLIENTS <n>`), and
+// the relay domain (for the tooltip).
+let agentOnline = false;
+let clientCount = 0;
+let relayHost = "";
+
+// "wss://remote.example.com/agent" -> "remote.example.com" for the tooltip.
+function hostFromRelay(relayUrl) {
+  return String(relayUrl || "")
+    .replace(/^wss?:\/\//i, "")
+    .replace(/\/agent\/?$/i, "")
+    .replace(/\/+$/, "");
+}
+
+// Recompute the status-bar item from the live state. The icon "lights up"
+// (success tone) only while at least one browser is connected; online-but-idle
+// is a neutral tone. Tooltip always names the relay domain + connection state.
+function refreshStatus() {
+  if (!agentOnline) return;
+  const where = relayHost ? " · " + relayHost : "";
+  if (clientCount > 0) {
+    const n = clientCount === 1 ? "1 client connected" : clientCount + " clients connected";
+    setStatus("success", "Remote Access" + where + " · " + n);
+  } else {
+    setStatus("default", "Remote Access" + where + " · online, no client connected");
+  }
+}
+
+function setClientCount(n) {
+  if (n === clientCount) return;
+  clientCount = n;
+  refreshStatus();
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -125,7 +160,10 @@ async function startAgent() {
     const config = JSON.stringify({ relay_url: relayUrl, agent_token: token, agent_name: agentName });
     handle = await ctx.invoke("shell_bg_spawn_direct", { program, args: [config] });
     await readReady(ctx, handle);
-    setStatus("success", "Remote Access: online (" + agentName + ")");
+    agentOnline = true;
+    clientCount = 0;
+    relayHost = hostFromRelay(relayUrl);
+    refreshStatus();
     ctx.ui.toast("Remote Access: agent online", { variant: "success" });
     ctx.logger.info("agent online, handle", handle);
     watchAgent(ctx, handle);
@@ -149,6 +187,8 @@ async function stopAgent() {
   const ctx = ctxRef;
   stopWatch();
   stopSshBridge();
+  agentOnline = false;
+  clientCount = 0;
   if (ctx && handle != null) {
     await ctx.invoke("shell_bg_kill", { handle }).catch(() => {});
     handle = null;
@@ -169,6 +209,7 @@ function stopWatch() {
 function watchAgent(ctx, h) {
   stopWatch();
   let offset = 0;
+  let buf = ""; // accumulates stdout so a `CLIENTS <n>` line split across polls still parses
   watchTimer = setInterval(async () => {
     if (handle !== h) {
       stopWatch();
@@ -181,14 +222,32 @@ function watchAgent(ctx, h) {
       return;
     }
     if (resp && typeof resp.next_offset === "number") offset = resp.next_offset;
+    // Pull the latest browser-count the agent reported (one `CLIENTS <n>` line
+    // per relay client connect/disconnect) and reflect it in the status bar.
+    if (resp && resp.bytes) {
+      buf += resp.bytes;
+      const nl = buf.lastIndexOf("\n");
+      if (nl >= 0) {
+        const lines = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        const matches = lines.match(/CLIENTS (\d+)/g);
+        if (matches && matches.length) {
+          const n = parseInt(matches[matches.length - 1].slice(8), 10);
+          if (!Number.isNaN(n)) setClientCount(n);
+        }
+      }
+      if (buf.length > 4096) buf = buf.slice(-4096); // bound the partial-line tail
+    }
     if (resp && resp.exited) {
       stopWatch();
       handle = null;
+      agentOnline = false;
+      clientCount = 0;
       ctx.logger.info("agent exited (code " + (resp.exit_code != null ? resp.exit_code : "?") + "); reconnecting");
       setStatus("warning", "Remote Access: reconnecting...");
       scheduleRestart();
     }
-  }, 3000);
+  }, 2000);
 }
 
 let restartTimer = null;

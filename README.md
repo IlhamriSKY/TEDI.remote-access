@@ -202,7 +202,9 @@ SSH session in the GUI process (not the PTY daemon), so the agent cannot see
 them. Instead, `extension.js` runs a small bridge in the webview that reads SSH
 tabs through the `ssh_list_sessions` and `ssh_attach` host commands and forwards
 them to the relay as a second source (shown with a sky stripe and `ssh` badge in
-the browser). Browser input routes back through `ssh_write` / `ssh_resize`.
+the browser). Browser keystrokes route back through `ssh_write`, and closing an
+SSH tab from the browser runs `ssh_close`. Resize is a deliberate no-op (the
+browser scales to fit so the desktop SSH terminal is never reflowed).
 
 On a TEDI build that exposes those commands this happens automatically; on older
 builds the bridge no-ops and only local terminals mirror. The TEDI-core changes
@@ -214,7 +216,7 @@ main TEDI repo, not this extension.
 | Permission | Why |
 | --- | --- |
 | `invoke:shell_bg_spawn_direct` / `invoke:shell_bg_logs` / `invoke:shell_bg_kill` | Spawn, read the `READY` handshake of, and stop the agent. |
-| `invoke:ssh_list_sessions` / `invoke:ssh_attach` / `invoke:ssh_write` / `invoke:ssh_resize` | Mirror SSH tabs (no-ops on builds without these commands). |
+| `invoke:ssh_list_sessions` / `invoke:ssh_attach` / `invoke:ssh_write` / `invoke:ssh_close` | Mirror SSH tabs and let the browser type into / close them (no-ops on builds without these commands). |
 | `settings:read` | Read the relay domain and host label. |
 | `secrets:read` | Read the agent token from the OS keychain. |
 | `ui:toast` | Connection and error toasts. |

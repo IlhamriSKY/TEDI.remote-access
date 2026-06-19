@@ -1,7 +1,7 @@
 {
   "name": "tedi-remote-client",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.8.0",
   "type": "module",
   "description": "TEDI remote-access browser client (Vite + React + Tailwind + shadcn).",
   "scripts": {

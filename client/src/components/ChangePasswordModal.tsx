@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
 import type { Remote } from "@/hooks/useRemote";
 
-// Self-contained change-password modal (overlay + centered card). Escape or an
-// overlay click closes it; the first field is focused on open. Responsive:
-// max-w-sm with page padding so it fits a phone. Submits to /api/change-password
-// via remote.changePassword (verifies the current password server-side).
+// Change-password dialog on the shared <Modal> shell (so its chrome matches the
+// confirm dialog). The first field is focused on open; submit goes to
+// /api/change-password via remote.changePassword (the server verifies the
+// current password). Responsive: the shell is max-w-sm with page padding.
 export function ChangePasswordModal({ remote, onClose }: { remote: Remote; onClose: () => void }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -18,12 +19,7 @@ export function ChangePasswordModal({ remote, onClose }: { remote: Remote; onClo
 
   useEffect(() => {
     firstRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -42,36 +38,31 @@ export function ChangePasswordModal({ remote, onClose }: { remote: Remote; onClo
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="presentation"
-      onMouseDown={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Change password"
-        className="w-full max-w-sm border border-border bg-card shadow-lg"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="border-b border-border px-4 py-3 text-sm font-medium text-foreground">Change password</div>
-        <form onSubmit={submit} className="flex flex-col gap-3 p-4">
-          <Field label="Current password" value={current} onChange={setCurrent} inputRef={firstRef} autoComplete="current-password" />
+    <Modal title="Change password" onClose={onClose}>
+      <form onSubmit={submit}>
+        <ModalBody>
+          <Field
+            label="Current password"
+            value={current}
+            onChange={setCurrent}
+            inputRef={firstRef}
+            autoComplete="current-password"
+          />
           <Field label="New password" value={next} onChange={setNext} autoComplete="new-password" />
           <Field label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
           {err && <p className="text-xs text-destructive">{err}</p>}
           {done && <p className="text-xs text-success">Password changed.</p>}
-          <div className="mt-1 flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={busy}>
-              Cancel
-            </Button>
-            <Button type="submit" size="sm" disabled={busy || done}>
-              {busy ? "Saving…" : "Change"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="submit" size="sm" disabled={busy || done}>
+            {busy ? "Saving…" : "Change"}
+          </Button>
+        </ModalFooter>
+      </form>
+    </Modal>
   );
 }
 
@@ -97,7 +88,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
-        className="h-8 border border-border bg-background px-2 text-xs text-foreground outline-none transition-colors focus:border-ring"
+        className="h-9 border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
       />
     </label>
   );

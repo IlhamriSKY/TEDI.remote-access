@@ -2,6 +2,28 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.0] - 2026-06-19
+
+- **Status-bar icon lights up when someone is watching.** The relay now tells the
+  agent how many browsers are connected; the TEDI status-bar globe turns green
+  (and the tooltip shows the count) while a browser is attached, and goes neutral
+  when idle. The tooltip always names your relay domain and whether it is online.
+- **Closing a tab from the browser now asks first.** A confirmation dialog spells
+  out that closing ends the process and closes the tab in the desktop app too, so
+  you don't kill a terminal by a stray tap.
+- **The browser stays full-screen no matter how small the desktop pane is.** The
+  view fills nearly the whole window (decoupled from the host pane's size) and
+  re-fits on window resize / phone rotation, without ever resizing the shared host
+  PTY.
+- **Consistent, tidier dialogs.** All modals (change-password, confirmations) now
+  share one shell: same header, close button, footer, border, and animation. Plus
+  small UI polish on the tabs and the connection indicator.
+- **Fixed: closing an SSH tab from the browser.** The extension calls `ssh_close`,
+  but the manifest never requested it (it requested the unused `ssh_resize`
+  instead), so closing an SSH tab could be denied. Permissions now match the code.
+- **Version numbers realigned.** The relay package, the Rust agent crate, and the
+  extension manifest now all report the same version.
+
 ## [0.7.5] - 2026-06-19
 
 - **SSH tabs show in the browser again.** The webview SSH bridge fetches its relay

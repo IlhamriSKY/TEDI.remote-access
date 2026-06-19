@@ -44,9 +44,10 @@ fn write_msg(stream: &Stream, msg: &ClientMsg) -> io::Result<()> {
     s.flush()
 }
 
-/// Cap on a single daemon frame (matches the relay's WS payload cap) so a
-/// malformed or hostile 4-byte length prefix can't trigger a multi-GiB
-/// allocation in the reader thread.
+/// Cap on a single daemon frame so a malformed or hostile 4-byte length prefix
+/// can't trigger a multi-GiB allocation in the reader thread. This is the local
+/// daemon link only and is independent of the relay's WS payload caps (2 MiB
+/// agent / 1 MiB client); the relay enforces its own.
 const MAX_FRAME: usize = 16 * 1024 * 1024;
 
 fn read_msg(stream: &Stream) -> io::Result<DaemonMsg> {

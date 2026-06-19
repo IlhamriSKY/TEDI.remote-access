@@ -452,6 +452,24 @@ function broadcastClients(text) {
   }
 }
 
+// Tell every agent SOURCE how many browsers are currently connected. The native
+// agent surfaces this to the TEDI status bar (so its icon lights up while a
+// browser is attached); other sources ignore it. Sent on every client connect /
+// disconnect, and once to each agent the moment it connects.
+function sendClientCount(ws) {
+  const msg = JSON.stringify({ t: "clients", count: clients.size });
+  const targets = ws ? [ws] : agents;
+  for (const a of targets) {
+    if (a.readyState === 1) {
+      try {
+        a.send(msg);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 function mergedSessionItems() {
   const out = [];
   for (const items of sessionsBySource.values()) for (const it of items) out.push(it);
@@ -474,6 +492,7 @@ wssAgent.on("connection", (ws) => {
   lastSessionsStr = null;
   log(`agent source connected (${agents.size} total)`);
   broadcastClients(JSON.stringify({ t: "host", status: "online", name: agentName }));
+  sendClientCount(ws); // let the new source light its indicator if browsers are already attached
 
   ws.on("message", (data) => {
     const s = data.toString();
@@ -518,6 +537,7 @@ wssClient.on("connection", (ws) => {
   clients.add(ws);
   ws.isAlive = true;
   log(`client connected (${clients.size} total)`);
+  sendClientCount(); // light the host's status-bar indicator
   if (agents.size > 0) {
     try {
       ws.send(JSON.stringify({ t: "host", status: "online", name: agentName }));
@@ -565,6 +585,7 @@ wssClient.on("connection", (ws) => {
   ws.on("close", () => {
     clients.delete(ws);
     log(`client disconnected (${clients.size} total)`);
+    sendClientCount(); // dim the host's indicator if that was the last browser
   });
   ws.on("error", () => clients.delete(ws));
 });

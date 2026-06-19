@@ -268,6 +268,17 @@ async fn handle_browser_frame(
                 }
             }
         }
+        "clients" => {
+            // The relay tells us how many browsers are attached. Surface it on
+            // stdout (the channel the extension already polls via shell_bg_logs)
+            // as a one-line `CLIENTS <n>` so the TEDI status bar can light its
+            // indicator and show the count. stdout is otherwise only the READY
+            // line; everything else is stderr.
+            let count = v.get("count").and_then(|x| x.as_u64()).unwrap_or(0);
+            use std::io::Write;
+            println!("CLIENTS {count}");
+            let _ = std::io::stdout().flush();
+        }
         "ping" => send_relay(relay_tx, Message::text(json!({ "t": "pong" }).to_string())),
         "hello" | "client_join" => {
             // A browser (re)joined: replay current state.

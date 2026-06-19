@@ -9,10 +9,11 @@ import type { Remote } from "@/hooks/useRemote";
 // background terminals stay live. Inactive panes use `invisible
 // pointer-events-none` (visibility, not display:none) so xterm can still
 // measure glyph metrics correctly. The browser always mirrors each terminal at
-// the host's real cols/rows. In "fit to window" mode the active terminal is
-// CSS-scaled (transform) to fill this container -- the host PTY is never resized,
-// so the desktop terminal is never reflowed; otherwise it renders 1:1 and the
-// pane scrolls when the terminal is larger than the screen.
+// the host's real cols/rows -- it never resizes the shared PTY, so the desktop
+// terminal is never reflowed even when its pane on the PC is tiny. In "fit to
+// window" mode (the default) the active terminal is CSS-scaled (transform) to
+// fill the WHOLE pane here, so the web view stays full-screen no matter how
+// small the host's pane is. Fit off renders 1:1 and the pane scrolls.
 export function TerminalHost({ remote }: { remote: Remote }) {
   const { sessions, activeId, fit, attachTerminal, focusActive, fitTerminal } = remote;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -23,18 +24,24 @@ export function TerminalHost({ remote }: { remote: Remote }) {
   }, [activeId, focusActive, fitTerminal]);
 
   // Re-fit the active terminal when the viewport/container resizes (fit mode).
+  // Also re-fit on a real window resize/orientation change so rotating a phone
+  // or resizing the browser re-fills the screen immediately.
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
     let t: number | undefined;
-    const ro = new ResizeObserver(() => {
+    const refit = () => {
       if (t) window.clearTimeout(t);
-      t = window.setTimeout(() => fitTerminal(activeId), 150);
-    });
-    ro.observe(el);
+      t = window.setTimeout(() => fitTerminal(activeId), 120);
+    };
+    const ro = el && typeof ResizeObserver !== "undefined" ? new ResizeObserver(refit) : null;
+    ro?.observe(el!);
+    window.addEventListener("resize", refit);
+    window.addEventListener("orientationchange", refit);
     return () => {
       if (t) window.clearTimeout(t);
-      ro.disconnect();
+      ro?.disconnect();
+      window.removeEventListener("resize", refit);
+      window.removeEventListener("orientationchange", refit);
     };
   }, [activeId, fitTerminal]);
 
@@ -51,9 +58,12 @@ export function TerminalHost({ remote }: { remote: Remote }) {
             if (el) attachTerminal(s.id, el, s);
           }}
           className={cn(
-            // inset-x-3 gives a tidy left/right gutter; measuring the inset pane
-            // (not a padded one) keeps the fit-mode scale math correct.
-            "absolute inset-y-0 inset-x-3",
+            // Near-full-bleed (a 6px inset for breathing room). The inset is set
+            // via positioning, not padding, so clientWidth/Height measure the
+            // real available box and the fit-mode scale math stays correct. Fit
+            // mode then scales to nearly the full viewport, decoupled from the
+            // host pane's size.
+            "absolute inset-1.5",
             // Fit mode centers the CSS-scaled terminal and clips the overflow;
             // otherwise render 1:1 and let the pane scroll.
             fit ? "flex items-center justify-center overflow-hidden" : "overflow-auto",
