@@ -11,6 +11,19 @@
 // Hardcoding a default would make all installs phone home to one host.
 const DEFAULT_RELAY = "";
 
+// Accept a bare domain (e.g. "remote.example.com") OR a full endpoint and
+// produce the canonical agent WebSocket URL "wss://host/agent". So the user can
+// type just the domain: the wss:// scheme and the /agent path are filled in.
+function normalizeRelayUrl(input) {
+  let s = (input || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) s = s.replace(/^http/i, "ws"); // http(s):// -> ws(s)://
+  else if (!/^wss?:\/\//i.test(s)) s = "wss://" + s; // no scheme -> default wss://
+  s = s.replace(/\/+$/, ""); // drop trailing slashes
+  if (!/\/agent$/i.test(s)) s += "/agent"; // ensure the /agent endpoint
+  return s;
+}
+
 let ctxRef = null;
 let handle = null;
 let booting = false;
@@ -99,7 +112,7 @@ async function startAgent() {
     ctx.ui.toast("Remote Access: set the agent token in Settings -> Extensions", { variant: "warning" });
     return;
   }
-  const relayUrl = (await ctx.settings.get("relayUrl")) || DEFAULT_RELAY;
+  const relayUrl = normalizeRelayUrl((await ctx.settings.get("relayUrl")) || DEFAULT_RELAY);
   if (!relayUrl) {
     setStatus("warning", "Remote Access: set the relay URL in Settings");
     ctx.ui.toast("Remote Access: set your relay URL in Settings -> Extensions", { variant: "warning" });

@@ -51,7 +51,7 @@ Open **Settings > Extensions > Remote Access** and set:
 
 | Setting | Value |
 | --- | --- |
-| **Relay URL** | `wss://<your-domain>/agent` |
+| **Relay** | your domain, e.g. `remote.example.com` (the `wss://` scheme and `/agent` path are added for you; a full `wss://host/agent` URL also works) |
 | **Agent token** | the `AGENT_TOKEN` you set on the relay (stored in the OS keychain) |
 | **Host label** | a name shown to the browser (for example your PC name) |
 | **Enable remote access** | turn **on** |
@@ -174,8 +174,9 @@ the login page.
 
 ### 7. Point the extension at it
 
-In TEDI, set **Relay URL** to `wss://<your-domain>/agent` and **Agent token** to
-the `AGENT_TOKEN` from step 3, then enable it (see [Configure](#configure)).
+In TEDI, set **Relay** to your domain (e.g. `remote.example.com`) and **Agent
+token** to the `AGENT_TOKEN` from step 3, then enable it (see
+[Configure](#configure)).
 
 ### Operate and update
 

@@ -2,6 +2,12 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.6.1] - 2026-06-19
+
+- **Relay setting accepts a bare domain.** You can now enter just
+  `remote.example.com`; the `wss://` scheme and `/agent` path are filled in
+  automatically (a full `wss://host/agent` URL still works).
+
 ## [0.6.0] - 2026-06-19
 
 - **Fit terminal to the browser.** A new "Fit to window" mode (on by default, in
