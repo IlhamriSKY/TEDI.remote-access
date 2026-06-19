@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 
 import { b64ToBytes, strToB64 } from "@/lib/b64";
@@ -14,11 +15,13 @@ import {
 
 export type ConnState = "connecting" | "open" | "closed";
 
-type TermEntry = { term: Terminal; el: HTMLElement };
+type TermEntry = { term: Terminal; el: HTMLElement; fit: FitAddon };
 
 const FONT_KEY = "tedi-remote-fontsize";
 const THEME_KEY = "tedi-remote-theme";
-const clampFont = (n: number) => Math.min(28, Math.max(8, n || 13));
+const FIT_KEY = "tedi-remote-fit";
+const DEFAULT_FONT = 13;
+const clampFont = (n: number) => Math.min(28, Math.max(8, n || DEFAULT_FONT));
 
 function getInitialTheme(): ThemeName {
   try {
@@ -49,6 +52,13 @@ export function useRemote() {
   const [user, setUser] = useState("");
   const [theme, setThemeState] = useState<ThemeName>(getInitialTheme);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [fit, setFit] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(FIT_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
 
   const wsRef = useRef<WebSocket | null>(null);
   const terms = useRef<Map<string, TermEntry>>(new Map());
@@ -65,6 +75,8 @@ export function useRemote() {
   const sessionsRef = useRef<SessionMeta[]>([]);
   const pendingNewIds = useRef<Set<string> | null>(null);
   const pendingNewTimer = useRef<number | null>(null);
+  const fitRef = useRef(fit);
+  const lastFitSent = useRef<Map<string, string>>(new Map());
 
   const send = useCallback((obj: unknown) => {
     const ws = wsRef.current;
@@ -73,6 +85,11 @@ export function useRemote() {
 
   const sendInput = useCallback(
     (id: string, data: string) => send({ t: "input", id, b64: strToB64(data) }),
+    [send],
+  );
+
+  const sendResize = useCallback(
+    (id: string, cols: number, rows: number) => send({ t: "resize", id, cols, rows }),
     [send],
   );
 
@@ -136,7 +153,9 @@ export function useRemote() {
         convertEol: false,
         allowProposedApi: true,
       });
+      const fitAddon = new FitAddon();
       try {
+        term.loadAddon(fitAddon);
         term.loadAddon(new WebLinksAddon());
       } catch {
         /* non-fatal */
@@ -166,7 +185,7 @@ export function useRemote() {
         }
         sendInput(id, out);
       });
-      terms.current.set(id, { term, el });
+      terms.current.set(id, { term, el, fit: fitAddon });
       flushPending(id, term);
     },
     [fontSize, sendInput, flushPending],
@@ -183,6 +202,7 @@ export function useRemote() {
       terms.current.delete(id);
     }
     pending.current.delete(id);
+    lastFitSent.current.delete(id);
     const t = idleTimers.current.get(id);
     if (t) {
       window.clearTimeout(t);
@@ -207,12 +227,37 @@ export function useRemote() {
     }
   }, []);
 
+  // Fit mode: size the active terminal to its container and push that size to
+  // the host PTY (so a terminal split tiny on the desktop fills the browser).
+  // No-op unless fit mode is on. Deduped per session so we don't spam resizes.
+  const fitTerminal = useCallback(
+    (id: string | null) => {
+      if (!id || !fitRef.current) return;
+      const entry = terms.current.get(id);
+      if (!entry) return;
+      try {
+        entry.fit.fit();
+      } catch {
+        return;
+      }
+      const cols = entry.term.cols;
+      const rows = entry.term.rows;
+      if (cols < 2 || rows < 2) return;
+      const key = `${cols}x${rows}`;
+      if (lastFitSent.current.get(id) === key) return;
+      lastFitSent.current.set(id, key);
+      sendResize(id, cols, rows);
+    },
+    [sendResize],
+  );
+
   // --- frame handling -----------------------------------------------------
   const writeScrollback = useCallback((id: string, b64: string, cols: number, rows: number) => {
     const bytes = b64 ? b64ToBytes(b64) : new Uint8Array(0);
     const entry = terms.current.get(id);
     if (entry) {
-      if (entry.term.cols !== cols || entry.term.rows !== rows) {
+      // In fit mode the browser owns the size; don't snap back to host dims.
+      if (!fitRef.current && (entry.term.cols !== cols || entry.term.rows !== rows)) {
         try {
           entry.term.resize(cols, rows);
         } catch {
@@ -235,13 +280,16 @@ export function useRemote() {
           break;
         case "sessions": {
           const items = f.items;
-          for (const it of items) {
-            const e = terms.current.get(it.id);
-            if (e && (e.term.cols !== it.cols || e.term.rows !== it.rows)) {
-              try {
-                e.term.resize(it.cols, it.rows);
-              } catch {
-                /* ignore */
+          // In fit mode the browser owns the size; don't snap to host dims.
+          if (!fitRef.current) {
+            for (const it of items) {
+              const e = terms.current.get(it.id);
+              if (e && (e.term.cols !== it.cols || e.term.rows !== it.rows)) {
+                try {
+                  e.term.resize(it.cols, it.rows);
+                } catch {
+                  /* ignore */
+                }
               }
             }
           }
@@ -411,9 +459,12 @@ export function useRemote() {
   useEffect(() => {
     localStorage.setItem(FONT_KEY, String(fontSize));
     for (const { term } of terms.current.values()) term.options.fontSize = fontSize;
-  }, [fontSize]);
+    // Font change alters cell size, so re-fit (cols/rows shift) in fit mode.
+    fitTerminal(activeIdRef.current);
+  }, [fontSize, fitTerminal]);
 
   const bumpFont = useCallback((delta: number) => setFontSize((f) => clampFont(f + delta)), []);
+  const resetFont = useCallback(() => setFontSize(DEFAULT_FONT), []);
 
   // Theme: persist, toggle the <html class="dark">, and re-theme every live term.
   const setTheme = useCallback((t: ThemeName) => {
@@ -437,6 +488,20 @@ export function useRemote() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", themeRef.current === "dark");
   }, []);
+
+  // Fit mode: persist, mirror to the ref, and re-fit the active terminal when it
+  // turns on. When off, forget last-sent sizes so re-enabling re-pushes them.
+  useEffect(() => {
+    fitRef.current = fit;
+    try {
+      localStorage.setItem(FIT_KEY, fit ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+    if (fit) fitTerminal(activeIdRef.current);
+    else lastFitSent.current.clear();
+  }, [fit, fitTerminal]);
+  const toggleFit = useCallback(() => setFit((v) => !v), []);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -485,6 +550,10 @@ export function useRemote() {
     setActiveId,
     fontSize,
     bumpFont,
+    resetFont,
+    fit,
+    toggleFit,
+    fitTerminal,
     attachTerminal,
     focusActive,
     sendInput,

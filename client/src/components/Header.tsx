@@ -84,11 +84,32 @@ function UserMenu({ remote }: { remote: Remote }) {
             <Button variant="outline" size="icon-xs" aria-label="Smaller" onClick={() => remote.bumpFont(-1)}>
               A-
             </Button>
-            <span className="w-6 text-center text-[11px] tabular-nums text-muted-foreground">{remote.fontSize}</span>
+            <button
+              type="button"
+              onClick={remote.resetFont}
+              title="Reset to default size"
+              aria-label="Reset text size"
+              className="w-7 text-center text-[11px] tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {remote.fontSize}
+            </button>
             <Button variant="outline" size="icon-xs" aria-label="Larger" onClick={() => remote.bumpFont(1)}>
               A+
             </Button>
           </span>
+        </div>
+        <div className="flex items-center justify-between px-2.5 py-1.5">
+          <span className="text-xs text-muted-foreground">Fit to window</span>
+          <Button
+            variant="outline"
+            size="xs"
+            aria-pressed={remote.fit}
+            onClick={remote.toggleFit}
+            title="Fill the browser with the active terminal (resizes the host)"
+            className={cn("w-10", remote.fit && "border-primary/60 text-foreground")}
+          >
+            {remote.fit ? "On" : "Off"}
+          </Button>
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem

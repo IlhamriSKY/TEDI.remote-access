@@ -221,8 +221,26 @@ async fn handle_browser_frame(
             }
         }
         "resize" => {
-            // MVP: size-follow the host (remote does not resize the PTY, which
-            // would reflow the GUI pane). v2 may honor this with a policy.
+            // "Fit to window" from the browser: resize the daemon PTY to the
+            // browser's viewport so a terminal split tiny on the desktop still
+            // fills the browser. The daemon is last-writer-wins with no resize
+            // broadcast, and TEDI's GUI only re-fits on its own pane-pixel
+            // changes, so this does not flap while the desktop window is idle
+            // (the GUI just reflows its own viewport). Non-uuid ids (SSH) are
+            // ignored here and handled by the SSH bridge's ssh_resize.
+            if let (Some(id), Some(cols), Some(rows)) = (
+                v.get("id").and_then(parse_uuid),
+                v.get("cols").and_then(|x| x.as_u64()),
+                v.get("rows").and_then(|x| x.as_u64()),
+            ) {
+                let daemon = daemon.clone();
+                let (cols, rows) = (cols as u16, rows as u16);
+                tokio::spawn(async move {
+                    if let Err(e) = daemon.resize(id, cols, rows).await {
+                        eprintln!("[agent] resize {id} failed: {e}");
+                    }
+                });
+            }
         }
         "open" => {
             // "New tab from the browser": ask the daemon to spawn a fresh PTY.

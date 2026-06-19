@@ -2,6 +2,18 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.6.0] - 2026-06-19
+
+- **Fit terminal to the browser.** A new "Fit to window" mode (on by default, in
+  the account menu) sizes the active terminal to your browser and resizes the
+  host PTY to match, so a terminal that is split tiny across several panes on the
+  desktop still fills the screen here. The desktop GUI keeps its own viewport and
+  does not fight back while its window is idle; turn the mode off for exact
+  host-size mirroring. Requires this version's agent, so reinstall the extension
+  to update it.
+- **Reset text size.** Click the size value between A- and A+ in the account menu
+  to reset the font to the default.
+
 ## [0.5.0] - 2026-06-19
 
 - **New terminal from the browser.** A "+" in the tab strip opens a fresh

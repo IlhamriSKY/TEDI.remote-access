@@ -213,7 +213,7 @@ impl DaemonClient {
         }
     }
 
-    #[allow(dead_code)]
+    /// Resize a session's PTY (the browser "fit to window" path).
     pub async fn resize(&self, id: Uuid, cols: u16, rows: u16) -> Result<(), String> {
         match self
             .request(|rid| ClientMsg::Resize { req_id: rid, session_id: id, cols, rows })
