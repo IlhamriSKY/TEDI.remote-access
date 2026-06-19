@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import { IconLock, IconLogout, IconMoon, IconSettings, IconSpin, IconSun } from "@/lib/icons";
+import { IconLock, IconLogout, IconMoon, IconSettings, IconSun } from "@/lib/icons";
 import { IconButton } from "@/components/IconButton";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { SettingsModal } from "@/components/SettingsModal";
@@ -17,6 +17,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import type { Remote } from "@/hooks/useRemote";
 
+const LOGO = `${import.meta.env.BASE_URL}icon.png`;
+
 export function Header({ remote }: { remote: Remote }) {
   const connecting = remote.conn !== "open";
   const online = remote.hostOnline && !connecting;
@@ -26,14 +28,13 @@ export function Header({ remote }: { remote: Remote }) {
 
   return (
     <>
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-sidebar px-3">
-        <StatusDot online={online} connecting={connecting} />
+      <header className="flex h-10 shrink-0 items-center gap-2.5 border-b border-border bg-sidebar px-3">
+        <img src={LOGO} alt="TEDI" className="size-5 shrink-0 select-none" draggable={false} />
         <span className="truncate text-xs font-semibold text-foreground">{remote.hostName || "TEDI Remote"}</span>
-        <span className="hidden truncate text-[11px] text-muted-foreground sm:inline">
-          · {connecting ? "connecting…" : online ? "host online" : "host offline"}
-        </span>
 
-        <div className="ml-auto flex items-center gap-0.5">
+        <div className="ml-auto flex items-center gap-1.5">
+          <OnlineIndicator online={online} connecting={connecting} />
+          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
           <IconButton
             icon={dark ? IconSun : IconMoon}
             label={dark ? "Light mode" : "Dark mode"}
@@ -53,22 +54,22 @@ export function Header({ remote }: { remote: Remote }) {
   );
 }
 
-function StatusDot({ online, connecting }: { online: boolean; connecting: boolean }) {
+// Round, pulsing connection light (green online / amber connecting / red offline).
+function OnlineIndicator({ online, connecting }: { online: boolean; connecting: boolean }) {
   const title = connecting ? "Connecting…" : online ? "Host online" : "Host offline";
+  const label = connecting ? "Connecting" : online ? "Online" : "Offline";
+  const tone = online ? "bg-success" : connecting ? "bg-warning" : "bg-destructive";
+  const textTone = online ? "text-success" : connecting ? "text-warning" : "text-muted-foreground";
+  const pulse = online || connecting;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="flex items-center justify-center px-0.5" aria-label={title}>
-          {connecting ? (
-            <HugeiconsIcon icon={IconSpin} size={13} className="animate-spin text-warning" strokeWidth={2} />
-          ) : (
-            <span
-              className={cn(
-                "inline-block size-2.5 ring-2",
-                online ? "bg-success ring-success/25" : "bg-destructive ring-destructive/20",
-              )}
-            />
-          )}
+        <span className="flex items-center gap-1.5" aria-label={title}>
+          <span className="relative flex size-2.5">
+            {pulse && <span className={cn("status-circle status-ping absolute inset-0 opacity-70", tone)} aria-hidden />}
+            <span className={cn("status-circle relative size-2.5", tone)} />
+          </span>
+          <span className={cn("hidden text-[11px] font-medium sm:inline", textTone)}>{label}</span>
         </span>
       </TooltipTrigger>
       <TooltipContent side="bottom">{title}</TooltipContent>

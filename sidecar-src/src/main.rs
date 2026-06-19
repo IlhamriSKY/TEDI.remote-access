@@ -154,10 +154,15 @@ fn send_relay(tx: &RelayTx, msg: Message) {
 }
 
 fn sessions_frame(sessions: &Sessions) -> Message {
-    let items: Vec<Value> = sessions
-        .lock()
-        .unwrap()
-        .values()
+    let map = sessions.lock().unwrap();
+    // Sort by creation time so the browser's tab order is stable and matches the
+    // order terminals were opened (the desktop app's order), instead of the
+    // HashMap's arbitrary iteration order. `createdAt` lets the browser keep that
+    // order across reconnects + number the tabs.
+    let mut states: Vec<&SessionState> = map.values().collect();
+    states.sort_by_key(|s| s.info.created_at_ms);
+    let items: Vec<Value> = states
+        .iter()
         .map(|s| {
             json!({
                 "id": s.info.id,
@@ -166,6 +171,7 @@ fn sessions_frame(sessions: &Sessions) -> Message {
                 "rows": s.info.rows,
                 "alive": s.info.alive,
                 "title": title_of(&s.info),
+                "createdAt": s.info.created_at_ms,
             })
         })
         .collect();

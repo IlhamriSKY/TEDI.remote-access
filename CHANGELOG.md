@@ -2,6 +2,18 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.2] - 2026-06-19
+
+- **Numbered, reorderable tabs.** Each browser tab now shows its position number
+  (matching the desktop app's left-to-right order) and can be dragged to reorder.
+  The agent now reports terminals in stable creation order (oldest first) instead
+  of an arbitrary order, so the numbering is consistent.
+- **Connection light is now an actual circle.** The pulsing online indicator was
+  still rendering square because the rounding override sat outside `@layer base`
+  (for `!important` rules, layered styles beat unlayered ones); moved it into the
+  layer so it wins.
+- **Pointer cursor** on dropdowns (`<select>`) and other controls.
+
 ## [0.8.1] - 2026-06-19
 
 - **New Settings dialog (gear in the header).** Pick the terminal font, text size,

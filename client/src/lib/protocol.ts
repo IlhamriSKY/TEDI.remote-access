@@ -9,6 +9,8 @@ export type SessionMeta = {
   alive: boolean;
   /** "pty" (local terminal, default) or "ssh" (remote SSH tab). */
   kind?: SessionKind;
+  /** Host creation time (ms). Drives stable tab order + numbering. */
+  createdAt?: number;
 };
 
 export type ServerFrame =

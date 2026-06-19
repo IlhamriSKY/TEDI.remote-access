@@ -10,14 +10,16 @@ import type { Remote } from "@/hooks/useRemote";
 
 const tabLabel = (s: SessionMeta) => s.title || (s.kind === "ssh" ? "ssh" : "terminal");
 
-// Terminal/SSH tab strip. The active tab carries a short LEFT accent stripe just
-// left of the tab icon (matching the TEDI desktop app) plus the terminal
-// background, so it reads as current and "joins" the terminal below. SSH tabs
-// get a sky accent + badge. Closing a tab asks for confirmation first (it kills
-// the process on the host). The trailing "+" opens a fresh terminal on the host.
+// Terminal/SSH tab strip. Distinct from the terminal area (bg-muted vs
+// bg-background) so the chrome reads separately. Each tab shows its position
+// number (matching the desktop app's left-to-right order). Tabs are
+// drag-to-reorder. Closing a tab confirms first (it kills the process on the
+// host, and closes the matching tab in the desktop app too).
 export function TabBar({ remote }: { remote: Remote }) {
   const { sessions, activeId, setActiveId } = remote;
   const [pendingClose, setPendingClose] = useState<SessionMeta | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   if (sessions.length === 0) return null;
 
   return (
@@ -27,20 +29,40 @@ export function TabBar({ remote }: { remote: Remote }) {
         aria-label="Terminals"
         className="no-scrollbar flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-border bg-muted"
       >
-        {sessions.map((s) => {
+        {sessions.map((s, idx) => {
           const active = s.id === activeId;
           const ssh = s.kind === "ssh";
           const running = !!remote.busy[s.id];
           const accent = ssh ? "text-[#38bdf8]" : "text-terminal";
           return (
-            // Wrapper holds the select button + a sibling close button (a button
-            // can't nest inside a button). The close (x) shows on hover on desktop
-            // and is always visible on touch (max-md).
             <div
               key={s.id}
+              draggable
+              onDragStart={(e) => {
+                setDragId(s.id);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragEnd={() => {
+                setDragId(null);
+                setOverId(null);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (dragId && dragId !== s.id && overId !== s.id) setOverId(s.id);
+              }}
+              onDragLeave={() => setOverId((o) => (o === s.id ? null : o))}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragId) remote.reorderTabs(dragId, s.id);
+                setDragId(null);
+                setOverId(null);
+              }}
               className={cn(
                 "group relative flex w-40 shrink-0 items-stretch border-r border-border transition-colors",
                 active ? "bg-background" : "hover:bg-background/60",
+                dragId === s.id && "opacity-40",
+                overId === s.id && "before:absolute before:inset-y-0 before:left-0 before:z-20 before:w-0.5 before:bg-primary",
               )}
             >
               {active && (
@@ -58,10 +80,18 @@ export function TabBar({ remote }: { remote: Remote }) {
                 title={s.cwd || tabLabel(s)}
                 onClick={() => setActiveId(s.id)}
                 className={cn(
-                  "flex min-w-0 flex-1 items-center gap-2 pr-1 pl-3 text-xs whitespace-nowrap transition-colors",
+                  "flex min-w-0 flex-1 items-center gap-1.5 pr-1 pl-2.5 text-xs whitespace-nowrap transition-colors",
                   active ? "font-medium text-foreground" : "text-muted-foreground group-hover:text-foreground",
                 )}
               >
+                <span
+                  className={cn(
+                    "shrink-0 text-[10px] tabular-nums",
+                    active ? accent : "text-muted-foreground/70",
+                  )}
+                >
+                  {idx + 1}
+                </span>
                 <HugeiconsIcon
                   icon={IconTerminal}
                   size={13}

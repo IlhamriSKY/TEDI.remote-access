@@ -61,6 +61,25 @@ function getInitialTheme(): ThemeName {
 
 const termTheme = (t: ThemeName) => (t === "dark" ? TERMINAL_THEME_DARK : TERMINAL_THEME_LIGHT);
 
+// Merge an incoming session list into the current one while PRESERVING the
+// current (possibly user-dragged) tab order: keep existing tabs in place with
+// refreshed metadata, drop tabs that are gone, and append newcomers ordered by
+// host creation time (so a fresh connection lists them oldest-first, matching
+// the order they were opened in the desktop app).
+function reconcileOrder(prev: SessionMeta[], incoming: SessionMeta[]): SessionMeta[] {
+  const byId = new Map(incoming.map((s) => [s.id, s]));
+  const out: SessionMeta[] = [];
+  for (const p of prev) {
+    const cur = byId.get(p.id);
+    if (cur) {
+      out.push(cur);
+      byId.delete(p.id);
+    }
+  }
+  const newcomers = [...byId.values()].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  return [...out, ...newcomers];
+}
+
 export type Remote = ReturnType<typeof useRemote>;
 
 export function useRemote() {
@@ -330,7 +349,7 @@ export function useRemote() {
           for (const it of items) fitTerminal(it.id);
           const live = new Set(items.map((i) => i.id));
           for (const id of [...terms.current.keys()]) if (!live.has(id)) disposeTerminal(id);
-          setSessions(items);
+          setSessions((prev) => reconcileOrder(prev, items));
           // If the user just hit "+", focus the session that wasn't there before.
           const fresh = pendingNewIds.current && items.find((i) => !pendingNewIds.current!.has(i.id));
           if (fresh) {
@@ -632,6 +651,23 @@ export function useRemote() {
     [send],
   );
 
+  // Drag-to-reorder: move `draggedId` to where `targetId` currently sits. The
+  // order is local to this browser (the host order is untouched) and survives
+  // incoming session frames via reconcileOrder.
+  const reorderTabs = useCallback((draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    setSessions((prev) => {
+      const from = prev.findIndex((s) => s.id === draggedId);
+      if (from < 0) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(from, 1);
+      const to = next.findIndex((s) => s.id === targetId);
+      if (to < 0) return prev;
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }, []);
+
   return {
     authed,
     totpRequired,
@@ -657,6 +693,7 @@ export function useRemote() {
     sendToActive,
     newTerminal,
     closeTerminal,
+    reorderTabs,
     ctrlSticky,
     setCtrlSticky,
     user,

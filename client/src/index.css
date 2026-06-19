@@ -118,8 +118,35 @@
     -webkit-font-smoothing: antialiased;
   }
   button:not(:disabled),
-  [role="button"]:not([aria-disabled="true"]) {
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled),
+  summary {
     cursor: pointer;
+  }
+
+  /* Round status dot. This MUST live INSIDE @layer base next to the universal
+   * `border-radius: 0 !important` rule above: for !important declarations,
+   * layered styles beat unlayered ones, so an unlayered override loses and the
+   * dot stays square. Inside the same layer, the higher-specificity
+   * `.status-circle` (0,1,0) outranks `*` (0,0,0) and wins. */
+  .status-circle {
+    border-radius: 9999px !important;
+  }
+}
+
+@keyframes status-ping {
+  75%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+.status-ping {
+  animation: status-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-ping {
+    animation: none;
   }
 }
 
