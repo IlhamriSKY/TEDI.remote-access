@@ -5,7 +5,8 @@
 // The heavy lifting (daemon attach, multiplexing, reconnect) lives in the Rust
 // agent under sidecar/<platform>/. This module only: reads config from the
 // extension settings, spawns the agent, reads its READY handshake, and exposes
-// a status-bar indicator + a Ctrl+Alt+R toggle.
+// a status-bar indicator. (Enable/disable is the extension's own toggle; there
+// is no keyboard shortcut.)
 
 // No default relay: every user must point this at THEIR own relay in Settings.
 // Hardcoding a default would make all installs phone home to one host.
