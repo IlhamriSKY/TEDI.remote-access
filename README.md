@@ -225,12 +225,34 @@ public surface and is gated by login.
 
 ## Security
 
-This exposes a full shell to the internet, so treat it like SSH:
+This exposes a full shell to the internet, so treat it like SSH.
 
-- Use a strong relay password and enable **TOTP**.
+**Operating advice**
+
+- Use a strong relay password and enable **TOTP** (set `TOTP_SECRET`).
 - Rotate `AGENT_TOKEN` and the password periodically; rotating `SESSION_SECRET` logs everyone out.
-- The relay binds `127.0.0.1`; only nginx (TLS) faces the net. Consider an nginx `allow`/`deny` IP allow-list if your access IPs are stable.
-- The agent token is stored in the OS keychain, never in plaintext on disk or in a process argument.
+- The relay binds `127.0.0.1`; only nginx (TLS) faces the net. Consider an nginx IP allow-list if your access IPs are stable.
+
+**Built-in hardening.** Transport is TLS-only (the extension forces `wss://`, so a
+plaintext relay URL can't leak the token or terminal stream). The relay compares
+the agent token and verifies the scrypt login in constant time, rate-limits login
+on the real client IP, makes one-time TOTP codes single-use, caps connections and
+frame sizes, debounces scrollback replays, sends a Content-Security-Policy, and
+runs under a sandboxed systemd unit. The agent only writes input to sessions it
+mirrors, and the daemon framing is length-bounded.
+
+**Known considerations (threat-model dependent).**
+
+- **The agent token is passed to the agent on its command line**, so another
+  process running as *you* on the same machine could read it from the OS process
+  list. On a single-user PC that's only your own processes; on a shared host,
+  treat the relay token as locally recoverable (rotate it if that host is shared).
+- **On a multi-user / RDP Windows host**, TEDI's PTY-daemon named pipe is not
+  ACL-restricted, so another local user could attach to your terminals. Not a
+  concern on a single-user machine (the Unix socket is mode `0600`).
+- **TEDI extensions run unsandboxed** in the app webview, so install-time
+  permission consent (which flags this extension's high-risk permissions) is the
+  real trust boundary — install only extensions you trust.
 
 ## Development
 
