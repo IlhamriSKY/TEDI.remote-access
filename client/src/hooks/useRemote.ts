@@ -423,6 +423,25 @@ export function useRemote() {
     location.reload();
   }, []);
 
+  const changePassword = useCallback(
+    async (current: string, next: string): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const r = await fetch("/api/change-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ current, new: next }),
+        });
+        if (r.ok) return { ok: true };
+        const j = (await r.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: j.error || (r.status === 429 ? "Too many attempts" : "Could not change password") };
+      } catch {
+        return { ok: false, error: "Network error" };
+      }
+    },
+    [],
+  );
+
   // boot: check session, then connect
   useEffect(() => {
     mounted.current = true;
@@ -568,6 +587,7 @@ export function useRemote() {
     busy,
     login,
     logout,
+    changePassword,
   };
 }
 

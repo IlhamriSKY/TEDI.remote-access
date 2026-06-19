@@ -230,7 +230,7 @@ This exposes a full shell to the internet, so treat it like SSH.
 **Operating advice**
 
 - Use a strong relay password and enable **TOTP** (set `TOTP_SECRET`).
-- Rotate `AGENT_TOKEN` and the password periodically; rotating `SESSION_SECRET` logs everyone out.
+- Rotate `AGENT_TOKEN` and the password periodically; rotating `SESSION_SECRET` logs everyone out. You can change the login password from the browser (account menu > **Change password**); the relay saves the new hash to `server/login-pass.hash`, which then overrides `LOGIN_PASS_HASH`.
 - The relay binds `127.0.0.1`; only nginx (TLS) faces the net. Consider an nginx IP allow-list if your access IPs are stable.
 
 **Built-in hardening.** Transport is TLS-only (the extension forces `wss://`, so a

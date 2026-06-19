@@ -112,6 +112,8 @@ RestartSec=2
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
+# The relay writes only login-pass.hash (Change password) into its own dir.
+ReadWritePaths=$APPDIR
 PrivateTmp=true
 PrivateDevices=true
 ProtectKernelTunables=true

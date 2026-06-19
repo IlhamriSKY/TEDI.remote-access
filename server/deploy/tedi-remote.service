@@ -14,12 +14,14 @@ ExecStart=/home/<your-user>/.nvm/versions/node/<version>/bin/node /var/www/html/
 Restart=always
 RestartSec=2
 
-# Hardening — the relay is the only public-facing service, writes nothing to
-# disk, needs no privileges, and only talks TCP on localhost. (MemoryDenyWrite
-# Execute / SystemCallFilter are intentionally omitted: they break V8's JIT.)
+# Hardening — the relay is the only public-facing service, needs no privileges,
+# and only talks TCP on localhost. (MemoryDenyWriteExecute / SystemCallFilter
+# are intentionally omitted: they break V8's JIT.)
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
+# The relay writes only login-pass.hash (Change password) into its own dir.
+ReadWritePaths=/var/www/html/tedi-remote/server
 PrivateTmp=true
 PrivateDevices=true
 ProtectKernelTunables=true

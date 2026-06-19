@@ -2,6 +2,24 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.7.3] - 2026-06-19
+
+- **Change your password from the browser.** The account menu now has a "Change
+  password" item that opens a small dialog (current password, new password,
+  confirm). The relay verifies the current password, requires the new one to be
+  at least 8 characters, and writes the new hash next to `server.js` so it
+  survives restarts. The systemd unit now grants `ReadWritePaths` for that one
+  file; rerun `server/install.sh` (or add the line manually) so the write
+  succeeds under the sandbox.
+- **Tab accent matches the desktop app.** The active tab's accent line now sits
+  just left of the tab icon (a short, vertically centred stripe) instead of
+  running down the edge, so the website and TEDI read the same. SSH tabs keep
+  their sky accent.
+- **Status-bar icon renders again.** The Remote Access globe in TEDI's status bar
+  showed as an empty square; it now draws as a proper HugeIcon. This needs the
+  host fix shipped in TEDI 0.3.46, so the extension now requires `tedi >=0.3.46`.
+- Responsive and layout tidy-ups across the header, tab strip, and the new modal.
+
 ## [0.7.2] - 2026-06-19
 
 - **One-command relay setup.** `server/install.sh` automates the whole VPS setup

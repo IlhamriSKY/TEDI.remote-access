@@ -46,6 +46,19 @@ const MAX_BODY = 1 << 16;
 const MAX_CLIENTS = 50; // browser WS cap (guards the client_join scrollback-replay amplification)
 const MAX_AGENT_SOURCES = 4; // native PTY agent + SSH bridge; a handful is plenty
 
+// Login password hash. Starts from LOGIN_PASS_HASH (env); if the user changes it
+// from the web UI we persist the new hash to PASS_FILE next to server.js, which
+// then overrides the env on the next boot. (The systemd unit grants write access
+// to this dir; the relay otherwise writes nothing.)
+const PASS_FILE = path.join(__dirname, "login-pass.hash");
+let loginPassHash = LOGIN_PASS_HASH;
+try {
+  const saved = fs.readFileSync(PASS_FILE, "utf8").trim();
+  if (saved) loginPassHash = saved;
+} catch {
+  /* no saved password yet */
+}
+
 // Short-lived WS tickets for header-less sources (the webview SSH bridge can't
 // set an Authorization header on a WebSocket handshake).
 const agentTickets = new Map(); // ticket -> expiry ms
@@ -79,14 +92,21 @@ function safeEqStr(a, b) {
 }
 
 function verifyPass(pass) {
-  if (LOGIN_PASS_HASH) {
-    const [saltHex, hashHex] = LOGIN_PASS_HASH.split(":");
+  if (loginPassHash) {
+    const [saltHex, hashHex] = loginPassHash.split(":");
     if (!saltHex || !hashHex) return false;
     const dk = crypto.scryptSync(pass, Buffer.from(saltHex, "hex"), 32);
     const expect = Buffer.from(hashHex, "hex");
     return dk.length === expect.length && crypto.timingSafeEqual(dk, expect);
   }
   return safeEqStr(pass, LOGIN_PASS);
+}
+
+// scrypt hash in the same `salt:hash` (hex) format as gen-hash.js.
+function hashPassword(pass) {
+  const salt = crypto.randomBytes(16);
+  const dk = crypto.scryptSync(pass, salt, 32);
+  return salt.toString("hex") + ":" + dk.toString("hex");
 }
 
 function signSession(user) {
@@ -325,6 +345,43 @@ const server = http.createServer(async (req, res) => {
   if (p === "/api/logout") {
     if (req.method !== "POST") return json(res, 405, { ok: false });
     clearSessionCookie(res);
+    return json(res, 200, { ok: true });
+  }
+
+  // Change the login password (requires a valid session + the current password).
+  if (p === "/api/change-password") {
+    if (req.method !== "POST") return json(res, 405, { ok: false });
+    const sess = verifySession(getCookie(req, COOKIE_NAME));
+    if (!sess) return json(res, 401, { ok: false, error: "not signed in" });
+    const ip = clientIp(req);
+    if (rateBlocked(ip)) return json(res, 429, { ok: false, error: "too many attempts" });
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      /* invalid json -> bad current password below */
+    }
+    const current = String(body.current || "");
+    const next = String(body.new || "");
+    if (!verifyPass(current)) {
+      noteFail(ip);
+      return json(res, 401, { ok: false, error: "current password is incorrect" });
+    }
+    if (next.length < 8) {
+      return json(res, 400, { ok: false, error: "new password must be at least 8 characters" });
+    }
+    try {
+      const hash = hashPassword(next);
+      const tmp = `${PASS_FILE}.tmp`;
+      fs.writeFileSync(tmp, hash, { mode: 0o600 });
+      fs.renameSync(tmp, PASS_FILE); // atomic swap
+      loginPassHash = hash;
+    } catch (e) {
+      log("change-password: cannot write PASS_FILE:", e && e.message ? e.message : e);
+      return json(res, 500, { ok: false, error: "could not save the new password on the server" });
+    }
+    loginFails.delete(ip);
+    log(`password changed by '${sess.u}'`);
     return json(res, 200, { ok: true });
   }
 

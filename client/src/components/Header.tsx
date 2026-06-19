@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import { IconLogout, IconMoon, IconSpin, IconSun } from "@/lib/icons";
+import { IconLock, IconLogout, IconMoon, IconSpin, IconSun } from "@/lib/icons";
 import { IconButton } from "@/components/IconButton";
+import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -19,24 +21,28 @@ export function Header({ remote }: { remote: Remote }) {
   const connecting = remote.conn !== "open";
   const online = remote.hostOnline && !connecting;
   const dark = remote.theme === "dark";
+  const [pwOpen, setPwOpen] = useState(false);
 
   return (
-    <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-sidebar px-2">
-      <StatusDot online={online} connecting={connecting} />
-      <span className="truncate text-xs font-medium text-foreground">{remote.hostName || "TEDI Remote"}</span>
-      <span className="hidden truncate text-[11px] text-muted-foreground sm:inline">
-        {connecting ? "connecting..." : online ? "host online" : "host offline"}
-      </span>
+    <>
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-sidebar px-2">
+        <StatusDot online={online} connecting={connecting} />
+        <span className="truncate text-xs font-medium text-foreground">{remote.hostName || "TEDI Remote"}</span>
+        <span className="hidden truncate text-[11px] text-muted-foreground sm:inline">
+          {connecting ? "connecting..." : online ? "host online" : "host offline"}
+        </span>
 
-      <div className="ml-auto flex items-center gap-0.5">
-        <IconButton
-          icon={dark ? IconSun : IconMoon}
-          label={dark ? "Light mode" : "Dark mode"}
-          onClick={remote.toggleTheme}
-        />
-        <UserMenu remote={remote} />
-      </div>
-    </header>
+        <div className="ml-auto flex items-center gap-0.5">
+          <IconButton
+            icon={dark ? IconSun : IconMoon}
+            label={dark ? "Light mode" : "Dark mode"}
+            onClick={remote.toggleTheme}
+          />
+          <UserMenu remote={remote} onChangePassword={() => setPwOpen(true)} />
+        </div>
+      </header>
+      {pwOpen && <ChangePasswordModal remote={remote} onClose={() => setPwOpen(false)} />}
+    </>
   );
 }
 
@@ -58,7 +64,7 @@ function StatusDot({ online, connecting }: { online: boolean; connecting: boolea
   );
 }
 
-function UserMenu({ remote }: { remote: Remote }) {
+function UserMenu({ remote, onChangePassword }: { remote: Remote; onChangePassword: () => void }) {
   const user = remote.user || "user";
   const initial = (user[0] || "?").toUpperCase();
   return (
@@ -112,6 +118,10 @@ function UserMenu({ remote }: { remote: Remote }) {
           </Button>
         </div>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onChangePassword()}>
+          <HugeiconsIcon icon={IconLock} size={14} strokeWidth={1.8} />
+          Change password
+        </DropdownMenuItem>
         <DropdownMenuItem
           className="text-destructive focus:bg-destructive/10 focus:text-destructive"
           onSelect={() => void remote.logout()}

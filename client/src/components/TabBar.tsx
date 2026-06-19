@@ -4,12 +4,12 @@ import { IconTerminal, IconAdd } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import type { Remote } from "@/hooks/useRemote";
 
-// Terminal/SSH tab strip. The active tab carries a full-height LEFT accent
-// stripe (matching the TEDI desktop app) plus the terminal background, so it
-// reads as current and "joins" the terminal below. SSH tabs get a sky accent +
-// badge. Tabs are uniform width and the content is left-aligned (icon, title,
-// trailing status) so the row stays tidy. Horizontally scrollable on narrow
-// screens. This is the primary navigation surface.
+// Terminal/SSH tab strip. The active tab carries a short LEFT accent stripe just
+// left of the tab icon (matching the TEDI desktop app's `renderEntryBody` — a
+// 3px, ~16px-tall, vertically-centred stripe inset from the edge) plus the
+// terminal background, so it reads as current and "joins" the terminal below.
+// SSH tabs get a sky accent + badge. Tabs are uniform width and the content is
+// left-aligned. Horizontally scrollable on narrow screens. Primary nav surface.
 export function TabBar({ remote }: { remote: Remote }) {
   const { sessions, activeId, setActiveId } = remote;
   if (sessions.length === 0) return null;
@@ -42,7 +42,7 @@ export function TabBar({ remote }: { remote: Remote }) {
             {active && (
               <span
                 className={cn(
-                  "pointer-events-none absolute inset-y-0 left-0 w-0.5",
+                  "pointer-events-none absolute top-1/2 left-1 h-4 w-[3px] -translate-y-1/2",
                   ssh ? "bg-[#38bdf8]" : "bg-terminal",
                 )}
                 aria-hidden
