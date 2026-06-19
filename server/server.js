@@ -36,13 +36,15 @@ const AGENT_TOKEN = process.env.AGENT_TOKEN || "";
 const LOGIN_USER = process.env.LOGIN_USER || "admin";
 const LOGIN_PASS_HASH = process.env.LOGIN_PASS_HASH || "";
 const LOGIN_PASS = process.env.LOGIN_PASS || "";
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+const SESSION_SECRET = process.env.SESSION_SECRET || "";
 const TOTP_SECRET = process.env.TOTP_SECRET || "";
 const TRUST_PROXY = process.env.TRUST_PROXY === "1";
 const COOKIE_NAME = "tedi_remote_sess";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY = 1 << 16;
+const MAX_CLIENTS = 50; // browser WS cap (guards the client_join scrollback-replay amplification)
+const MAX_AGENT_SOURCES = 4; // native PTY agent + SSH bridge; a handful is plenty
 
 // Short-lived WS tickets for header-less sources (the webview SSH bridge can't
 // set an Authorization header on a WebSocket handshake).
@@ -54,6 +56,12 @@ if (!AGENT_TOKEN) {
 }
 if (!LOGIN_PASS_HASH && !LOGIN_PASS) {
   console.error("[relay] FATAL: set LOGIN_PASS_HASH (preferred) or LOGIN_PASS");
+  process.exit(1);
+}
+if (!SESSION_SECRET) {
+  // A random per-process default would silently invalidate every session on
+  // each restart (the unit is Restart=always) and break a multi-instance deploy.
+  console.error("[relay] FATAL: SESSION_SECRET env is required");
   process.exit(1);
 }
 
@@ -130,12 +138,21 @@ function totpAt(secret, counter) {
   return (code % 1_000_000).toString().padStart(6, "0");
 }
 
+// Returns the matched 30s counter (>= 0) for a valid code, or -1. The caller
+// consumes the counter only on a full login success (see /api/login), which
+// prevents replay within the window and stops a wrong-password attacker from
+// burning the user's counter. Window is [-1, 0] (past skew only).
+let lastTotpCounter = -1;
 function verifyTotp(code) {
-  if (!TOTP_SECRET) return true;
-  if (!/^\d{6}$/.test(String(code || ""))) return false;
+  if (!TOTP_SECRET) return 0; // TOTP disabled: sentinel "valid", never consumed
+  if (!/^\d{6}$/.test(String(code || ""))) return -1;
   const counter = Math.floor(Date.now() / 1000 / 30);
-  for (const w of [-1, 0, 1]) if (safeEqStr(code, totpAt(TOTP_SECRET, counter + w))) return true;
-  return false;
+  for (const w of [-1, 0]) {
+    const c = counter + w;
+    if (c <= lastTotpCounter) continue; // already consumed: reject replay
+    if (safeEqStr(code, totpAt(TOTP_SECRET, c))) return c;
+  }
+  return -1;
 }
 
 // ----------------------------- rate limiting ----------------------------------
@@ -144,8 +161,11 @@ const loginFails = new Map(); // ip -> { n, until }
 
 function clientIp(req) {
   if (TRUST_PROXY) {
-    const xff = req.headers["x-forwarded-for"];
-    if (xff) return String(xff).split(",")[0].trim();
+    // Trust only nginx's X-Real-IP (the real peer). X-Forwarded-For is
+    // client-controllable (nginx APPENDS to it), so its leftmost entry can be
+    // spoofed to dodge the login rate-limit — never key the limiter on it.
+    const real = req.headers["x-real-ip"];
+    if (real) return String(real).trim();
   }
   return req.socket.remoteAddress || "?";
 }
@@ -154,9 +174,10 @@ function rateBlocked(ip) {
   return e && e.until > Date.now();
 }
 function noteFail(ip) {
-  const e = loginFails.get(ip) || { n: 0, until: 0 };
+  const e = loginFails.get(ip) || { n: 0, until: 0, ts: 0 };
   e.n += 1;
-  if (e.n >= 5) e.until = Date.now() + Math.min(60_000 * 2 ** (e.n - 5), 15 * 60_000);
+  e.ts = Date.now();
+  if (e.n >= 5) e.until = e.ts + Math.min(60_000 * 2 ** (e.n - 5), 15 * 60_000);
   loginFails.set(ip, e);
 }
 
@@ -209,6 +230,16 @@ function sendFile(res, filePath, buf) {
     res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   } else if (ext === ".html") {
     res.setHeader("Cache-Control", "no-cache");
+    // Defense-in-depth for the xterm renderer. The SPA uses an inline no-FOUC
+    // theme script + inline styles, so script/style need 'unsafe-inline'.
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; " +
+        "base-uri 'none'; form-action 'self'",
+    );
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
   }
   res.writeHead(200).end(buf);
 }
@@ -273,11 +304,19 @@ const server = http.createServer(async (req, res) => {
     } catch {
       /* invalid json -> treated as bad creds below */
     }
-    const ok = safeEqStr(body.user || "", LOGIN_USER) && verifyPass(body.pass || "") && verifyTotp(body.otp);
+    // Evaluate all three factors unconditionally before combining, so a wrong
+    // username can't short-circuit the expensive scrypt and leak via timing.
+    const okUser = safeEqStr(body.user || "", LOGIN_USER);
+    const okPass = verifyPass(body.pass || "");
+    const totpC = verifyTotp(body.otp);
+    const okOtp = totpC >= 0;
+    const ok = okUser && okPass && okOtp;
     if (!ok) {
       noteFail(ip);
       return json(res, 401, { ok: false, error: "invalid credentials" });
     }
+    // Consume the OTP step only now (full success) so it can't be replayed.
+    if (TOTP_SECRET && totpC > lastTotpCounter) lastTotpCounter = totpC;
     loginFails.delete(ip);
     setSessionCookie(res, signSession(LOGIN_USER));
     return json(res, 200, { ok: true });
@@ -311,7 +350,7 @@ const server = http.createServer(async (req, res) => {
 
 // ----------------------------- websocket --------------------------------------
 
-const wssAgent = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
+const wssAgent = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
 const wssClient = new WebSocketServer({ noServer: true, maxPayload: 1 * 1024 * 1024 });
 
 // Multiple agent SOURCES can connect: the native PTY agent and the webview SSH
@@ -322,6 +361,7 @@ const agents = new Set();
 const sessionsBySource = new Map(); // ws -> sessions items[]
 let agentName = null;
 const clients = new Set();
+let lastClientJoin = 0;
 
 function broadcastClients(text) {
   for (const c of clients) {
@@ -340,8 +380,12 @@ function mergedSessionItems() {
   for (const items of sessionsBySource.values()) for (const it of items) out.push(it);
   return out;
 }
+let lastSessionsStr = null;
 function broadcastSessions() {
-  broadcastClients(JSON.stringify({ t: "sessions", items: mergedSessionItems() }));
+  const str = JSON.stringify({ t: "sessions", items: mergedSessionItems() });
+  if (str === lastSessionsStr) return; // unchanged (e.g. the agent's 2s poll): skip the fan-out
+  lastSessionsStr = str;
+  broadcastClients(str);
 }
 
 wssAgent.on("connection", (ws) => {
@@ -353,11 +397,15 @@ wssAgent.on("connection", (ws) => {
 
   ws.on("message", (data) => {
     const s = data.toString();
+    // Only control frames (sessions/host) need parsing and they are tiny; skip
+    // JSON.parse on large data/attached frames (the hot path).
     let o = null;
-    try {
-      o = JSON.parse(s);
-    } catch {
-      /* opaque */
+    if (s.length < 65536 && s.charCodeAt(0) === 123 /* '{' */) {
+      try {
+        o = JSON.parse(s);
+      } catch {
+        /* opaque */
+      }
     }
     if (o && o.t === "sessions") {
       sessionsBySource.set(ws, Array.isArray(o.items) ? o.items : []);
@@ -396,12 +444,19 @@ wssClient.on("connection", (ws) => {
     } catch {
       /* ignore */
     }
-    // Ask every source to replay full scrollback for the newcomer.
-    for (const a of agents) {
-      try {
-        a.send(JSON.stringify({ t: "client_join" }));
-      } catch {
-        /* ignore */
+    // Ask every source to replay full scrollback for the newcomer, but at most
+    // once per second: the replay broadcasts to ALL clients, so a recent one
+    // already covers this newcomer, and a burst of connections can't amplify
+    // into a storm of full-scrollback replays.
+    const now = Date.now();
+    if (now - lastClientJoin > 1000) {
+      lastClientJoin = now;
+      for (const a of agents) {
+        try {
+          a.send(JSON.stringify({ t: "client_join" }));
+        } catch {
+          /* ignore */
+        }
       }
     }
   } else {
@@ -451,10 +506,20 @@ server.on("upgrade", (req, socket, head) => {
       socket.destroy();
       return;
     }
+    if (agents.size >= MAX_AGENT_SOURCES) {
+      socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     wssAgent.handleUpgrade(req, socket, head, (ws) => wssAgent.emit("connection", ws, req));
   } else if (pathname === "/client") {
     if (!verifySession(getCookie(req, COOKIE_NAME))) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    if (clients.size >= MAX_CLIENTS) {
+      socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
       socket.destroy();
       return;
     }
@@ -477,9 +542,16 @@ const heartbeat = setInterval(() => {
   };
   for (const a of agents) check(a);
   for (const c of clients) check(c);
+  // Prune stale rate-limit + expired ticket entries so the maps stay bounded.
+  const now = Date.now();
+  for (const [ip, e] of loginFails) if (now - (e.ts || 0) > 15 * 60_000) loginFails.delete(ip);
+  for (const [k, exp] of agentTickets) if (exp <= now) agentTickets.delete(k);
 }, 30_000);
 heartbeat.unref();
 
+// Bound slow-loris: cap how long a peer may take to send headers / the body.
+server.requestTimeout = 20_000;
+server.headersTimeout = 15_000;
 server.listen(PORT, HOST, () => {
   log(`listening on ${HOST}:${PORT}`);
   log(`TOTP ${TOTP_SECRET ? "ENABLED" : "disabled"}; login user '${LOGIN_USER}'`);

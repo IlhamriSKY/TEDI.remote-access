@@ -2,6 +2,20 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.7.2] - 2026-06-19
+
+- **One-command relay setup.** `server/install.sh` automates the whole VPS setup
+  (secrets, `.env`, website build, systemd service, nginx vhost) and prints the
+  agent token to paste into the extension. See the README "Self-host" section.
+- **Relay hardening (from the security audit):** `SESSION_SECRET` is now required
+  (a random per-restart default logged everyone out); the login rate-limit keys
+  on nginx's `X-Real-IP` instead of the spoofable `X-Forwarded-For`; browser and
+  agent connection caps stop the scrollback-replay amplification; login evaluates
+  all factors before combining (no username timing oracle); TOTP codes can't be
+  replayed; the SPA is served with a CSP + security headers; large frames skip
+  JSON parsing; rate-limit / ticket maps are pruned on the heartbeat; HTTP
+  slow-loris timeouts are set; the systemd unit is sandboxed.
+
 ## [0.7.1] - 2026-06-19
 
 - **Repo structure now matches the other TEDI extensions.** The extension source

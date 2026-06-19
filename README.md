@@ -88,6 +88,13 @@ Requirements: a VPS with **SSH**, **nginx**, **Node 18+**, and a domain whose A
 record points at the VPS. The steps below assume `remote.example.com`; replace
 it with your domain.
 
+> **Fastest path:** from the extracted bundle root, run `bash server/install.sh`.
+> It asks for your domain + login, generates the secrets, builds the website,
+> installs the systemd service + nginx vhost, and prints the **Agent token** to
+> paste into the extension. Obtain the TLS cert with the `certbot` line it
+> prints, then re-run it once to switch to HTTPS. The manual steps below do the
+> same thing by hand.
+
 ### 1. Get the source onto the VPS
 
 Either clone the repo or download `tedi-remote-relay-<version>.tar.gz` from the
