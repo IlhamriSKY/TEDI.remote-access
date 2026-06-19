@@ -51,7 +51,7 @@ Open **Settings > Extensions > Remote Access** and set:
 
 | Setting | Value |
 | --- | --- |
-| **Relay** | your domain, e.g. `remote.example.com` (the `wss://` scheme and `/agent` path are added for you; a full `wss://host/agent` URL also works) |
+| **Relay** | your relay's domain, e.g. `remote.example.com` |
 | **Agent token** | the `AGENT_TOKEN` you set on the relay (stored in the OS keychain) |
 | **Host label** | a name shown to the browser (for example your PC name) |
 | **Enable remote access** | turn **on** |

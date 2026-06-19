@@ -2,6 +2,10 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.6.2] - 2026-06-19
+
+- Shorten the Relay setting description to just the domain example.
+
 ## [0.6.1] - 2026-06-19
 
 - **Relay setting accepts a bare domain.** You can now enter just
