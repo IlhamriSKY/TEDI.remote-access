@@ -2,6 +2,18 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.1] - 2026-06-19
+
+- **New Settings dialog (gear in the header).** Pick the terminal font, text size,
+  line spacing, fit-to-window, and theme in one place. Choices persist and apply
+  live. Text size and fit moved out of the account menu into Settings.
+- **Tabs are now clearly separate from the terminal.** The tab strip uses a
+  distinct background from the terminal area (in light mode they were both white
+  before, so you couldn't tell them apart). The active tab gets a top accent bar
+  and the terminal background so it reads as selected.
+- **Header polish.** Status dot with a soft ring, a settings gear, and a tidier
+  account menu.
+
 ## [0.8.0] - 2026-06-19
 
 - **Status-bar icon lights up when someone is watching.** The relay now tells the

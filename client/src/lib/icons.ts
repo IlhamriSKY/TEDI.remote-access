@@ -15,4 +15,5 @@ export {
   Cancel01Icon as IconClose,
   Sun01Icon as IconSun,
   Moon02Icon as IconMoon,
+  Settings02Icon as IconSettings,
 } from "@hugeicons/core-free-icons";

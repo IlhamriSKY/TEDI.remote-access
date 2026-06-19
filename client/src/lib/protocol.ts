@@ -77,3 +77,29 @@ export const TERMINAL_THEME_LIGHT = {
 export type ThemeName = "light" | "dark";
 
 export const TERMINAL_FONT = '"JetBrains Mono", ui-monospace, Menlo, Consolas, "Courier New", monospace';
+
+// User-selectable terminal fonts (Settings). "JetBrains Mono" is bundled; the
+// rest fall back to whatever monospace the OS provides.
+export type FontFamilyId = "jetbrains" | "system" | "menlo" | "consolas" | "courier";
+
+export const FONT_FAMILIES: { id: FontFamilyId; label: string; stack: string }[] = [
+  { id: "jetbrains", label: "JetBrains Mono", stack: TERMINAL_FONT },
+  { id: "system", label: "System monospace", stack: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" },
+  { id: "menlo", label: "Menlo / Monaco", stack: 'Menlo, Monaco, ui-monospace, "Courier New", monospace' },
+  { id: "consolas", label: "Consolas", stack: 'Consolas, "Courier New", ui-monospace, monospace' },
+  { id: "courier", label: "Courier New", stack: '"Courier New", monospace' },
+];
+
+export const DEFAULT_FONT_FAMILY: FontFamilyId = "jetbrains";
+
+export function fontStack(id: FontFamilyId): string {
+  return (FONT_FAMILIES.find((f) => f.id === id) ?? FONT_FAMILIES[0]).stack;
+}
+
+// Line-spacing presets (xterm `lineHeight` multiplier).
+export const LINE_SPACINGS: { label: string; value: number }[] = [
+  { label: "Compact", value: 1.0 },
+  { label: "Normal", value: 1.2 },
+  { label: "Relaxed", value: 1.4 },
+];
+export const DEFAULT_LINE_HEIGHT = 1.0;

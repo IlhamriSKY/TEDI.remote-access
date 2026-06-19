@@ -4,9 +4,13 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 
 import { b64ToBytes, strToB64 } from "@/lib/b64";
 import {
-  TERMINAL_FONT,
+  DEFAULT_FONT_FAMILY,
+  DEFAULT_LINE_HEIGHT,
+  FONT_FAMILIES,
+  fontStack,
   TERMINAL_THEME_DARK,
   TERMINAL_THEME_LIGHT,
+  type FontFamilyId,
   type ServerFrame,
   type SessionMeta,
   type ThemeName,
@@ -17,10 +21,31 @@ export type ConnState = "connecting" | "open" | "closed";
 type TermEntry = { term: Terminal; el: HTMLElement };
 
 const FONT_KEY = "tedi-remote-fontsize";
+const FONTFAMILY_KEY = "tedi-remote-fontfamily";
+const LINEHEIGHT_KEY = "tedi-remote-lineheight";
 const THEME_KEY = "tedi-remote-theme";
 const FIT_KEY = "tedi-remote-fit";
 const DEFAULT_FONT = 13;
 const clampFont = (n: number) => Math.min(28, Math.max(8, n || DEFAULT_FONT));
+const clampLineHeight = (n: number) => Math.min(1.6, Math.max(1.0, n || DEFAULT_LINE_HEIGHT));
+
+function getInitialFontFamily(): FontFamilyId {
+  try {
+    const v = localStorage.getItem(FONTFAMILY_KEY);
+    if (v && FONT_FAMILIES.some((f) => f.id === v)) return v as FontFamilyId;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_FONT_FAMILY;
+}
+
+function getInitialLineHeight(): number {
+  try {
+    return clampLineHeight(Number(localStorage.getItem(LINEHEIGHT_KEY)));
+  } catch {
+    return DEFAULT_LINE_HEIGHT;
+  }
+}
 
 function getInitialTheme(): ThemeName {
   try {
@@ -47,6 +72,8 @@ export function useRemote() {
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(() => clampFont(Number(localStorage.getItem(FONT_KEY))));
+  const [fontFamily, setFontFamily] = useState<FontFamilyId>(getInitialFontFamily);
+  const [lineHeight, setLineHeightState] = useState<number>(getInitialLineHeight);
   const [ctrlSticky, setCtrlSticky] = useState(false);
   const [user, setUser] = useState("");
   const [theme, setThemeState] = useState<ThemeName>(getInitialTheme);
@@ -64,6 +91,8 @@ export function useRemote() {
   const activeIdRef = useRef<string | null>(null);
   const ctrlRef = useRef(false);
   const themeRef = useRef<ThemeName>(theme);
+  const fontFamilyRef = useRef<FontFamilyId>(fontFamily);
+  const lineHeightRef = useRef<number>(lineHeight);
   const busyRef = useRef<Map<string, boolean>>(new Map());
   const idleTimers = useRef<Map<string, number>>(new Map());
   const pending = useRef<Map<string, Uint8Array[]>>(new Map());
@@ -139,7 +168,8 @@ export function useRemote() {
         cols: meta?.cols ?? 80,
         rows: meta?.rows ?? 24,
         fontSize,
-        fontFamily: TERMINAL_FONT,
+        fontFamily: fontStack(fontFamilyRef.current),
+        lineHeight: lineHeightRef.current,
         theme: termTheme(themeRef.current),
         cursorBlink: true,
         scrollback: 8000,
@@ -490,6 +520,33 @@ export function useRemote() {
   const bumpFont = useCallback((delta: number) => setFontSize((f) => clampFont(f + delta)), []);
   const resetFont = useCallback(() => setFontSize(DEFAULT_FONT), []);
 
+  // Font family -> all terminals + persist. Changing the family alters cell
+  // width, so re-scale every terminal in fit mode.
+  useEffect(() => {
+    fontFamilyRef.current = fontFamily;
+    try {
+      localStorage.setItem(FONTFAMILY_KEY, fontFamily);
+    } catch {
+      /* ignore */
+    }
+    const stack = fontStack(fontFamily);
+    for (const { term } of terms.current.values()) term.options.fontFamily = stack;
+    for (const id of terms.current.keys()) fitTerminal(id);
+  }, [fontFamily, fitTerminal]);
+
+  // Line spacing -> all terminals + persist (changes row height -> re-fit).
+  const setLineHeight = useCallback((n: number) => setLineHeightState(clampLineHeight(n)), []);
+  useEffect(() => {
+    lineHeightRef.current = lineHeight;
+    try {
+      localStorage.setItem(LINEHEIGHT_KEY, String(lineHeight));
+    } catch {
+      /* ignore */
+    }
+    for (const { term } of terms.current.values()) term.options.lineHeight = lineHeight;
+    for (const id of terms.current.keys()) fitTerminal(id);
+  }, [lineHeight, fitTerminal]);
+
   // Theme: persist, toggle the <html class="dark">, and re-theme every live term.
   const setTheme = useCallback((t: ThemeName) => {
     setThemeState(t);
@@ -587,6 +644,10 @@ export function useRemote() {
     fontSize,
     bumpFont,
     resetFont,
+    fontFamily,
+    setFontFamily,
+    lineHeight,
+    setLineHeight,
     fit,
     toggleFit,
     fitTerminal,

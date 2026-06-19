@@ -25,7 +25,7 @@ export function TabBar({ remote }: { remote: Remote }) {
       <div
         role="tablist"
         aria-label="Terminals"
-        className="no-scrollbar flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-border bg-card"
+        className="no-scrollbar flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-border bg-muted"
       >
         {sessions.map((s) => {
           const active = s.id === activeId;
@@ -39,14 +39,14 @@ export function TabBar({ remote }: { remote: Remote }) {
             <div
               key={s.id}
               className={cn(
-                "group relative flex w-40 shrink-0 items-stretch border-r border-border",
-                active ? "bg-background" : "bg-card hover:bg-muted",
+                "group relative flex w-40 shrink-0 items-stretch border-r border-border transition-colors",
+                active ? "bg-background" : "hover:bg-background/60",
               )}
             >
               {active && (
                 <span
                   className={cn(
-                    "pointer-events-none absolute top-1/2 left-1 z-10 h-4 w-[3px] -translate-y-1/2",
+                    "pointer-events-none absolute inset-x-0 top-0 z-10 h-[2px]",
                     ssh ? "bg-[#38bdf8]" : "bg-terminal",
                   )}
                   aria-hidden
@@ -58,8 +58,8 @@ export function TabBar({ remote }: { remote: Remote }) {
                 title={s.cwd || tabLabel(s)}
                 onClick={() => setActiveId(s.id)}
                 className={cn(
-                  "flex min-w-0 flex-1 items-center gap-2 pr-1 pl-3.5 text-xs whitespace-nowrap transition-colors",
-                  active ? "text-foreground" : "text-muted-foreground group-hover:text-foreground",
+                  "flex min-w-0 flex-1 items-center gap-2 pr-1 pl-3 text-xs whitespace-nowrap transition-colors",
+                  active ? "font-medium text-foreground" : "text-muted-foreground group-hover:text-foreground",
                 )}
               >
                 <HugeiconsIcon
@@ -100,7 +100,7 @@ export function TabBar({ remote }: { remote: Remote }) {
               type="button"
               aria-label="New terminal"
               onClick={() => remote.newTerminal()}
-              className="flex w-9 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex w-9 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
             >
               <HugeiconsIcon icon={IconAdd} size={15} strokeWidth={1.8} />
             </button>
