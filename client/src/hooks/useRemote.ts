@@ -62,6 +62,9 @@ export function useRemote() {
   const hbTimer = useRef<number | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const mounted = useRef(true);
+  const sessionsRef = useRef<SessionMeta[]>([]);
+  const pendingNewIds = useRef<Set<string> | null>(null);
+  const pendingNewTimer = useRef<number | null>(null);
 
   const send = useCallback((obj: unknown) => {
     const ws = wsRef.current;
@@ -245,7 +248,15 @@ export function useRemote() {
           const live = new Set(items.map((i) => i.id));
           for (const id of [...terms.current.keys()]) if (!live.has(id)) disposeTerminal(id);
           setSessions(items);
-          setActiveId((cur) => (cur && live.has(cur) ? cur : (items[0]?.id ?? null)));
+          // If the user just hit "+", focus the session that wasn't there before.
+          const fresh = pendingNewIds.current && items.find((i) => !pendingNewIds.current!.has(i.id));
+          if (fresh) {
+            pendingNewIds.current = null;
+            if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
+            setActiveId(fresh.id);
+          } else {
+            setActiveId((cur) => (cur && live.has(cur) ? cur : (items[0]?.id ?? null)));
+          }
           break;
         }
         case "attached": {
@@ -431,6 +442,9 @@ export function useRemote() {
     activeIdRef.current = activeId;
   }, [activeId]);
   useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+  useEffect(() => {
     ctrlRef.current = ctrlSticky;
   }, [ctrlSticky]);
 
@@ -442,6 +456,23 @@ export function useRemote() {
     },
     [sendInput],
   );
+
+  // Ask the host to open a NEW terminal (the "+" in the tab strip). Sizes it to
+  // the active terminal so it fills the view; the host spawns a fresh PTY and
+  // the new tab streams in within ~2s. Snapshot current ids so we can focus the
+  // newcomer when it appears (cleared after 5s so a no-op never mis-selects).
+  const newTerminal = useCallback(() => {
+    const id = activeIdRef.current;
+    const e = id ? terms.current.get(id) : null;
+    const cols = e?.term.cols ?? 80;
+    const rows = e?.term.rows ?? 24;
+    pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
+    if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
+    pendingNewTimer.current = window.setTimeout(() => {
+      pendingNewIds.current = null;
+    }, 5000);
+    send({ t: "open", cols, rows });
+  }, [send]);
 
   return {
     authed,
@@ -458,6 +489,7 @@ export function useRemote() {
     focusActive,
     sendInput,
     sendToActive,
+    newTerminal,
     ctrlSticky,
     setCtrlSticky,
     user,

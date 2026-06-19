@@ -224,6 +224,22 @@ async fn handle_browser_frame(
             // MVP: size-follow the host (remote does not resize the PTY, which
             // would reflow the GUI pane). v2 may honor this with a policy.
         }
+        "open" => {
+            // "New tab from the browser": ask the daemon to spawn a fresh PTY.
+            // Spawn the request so the slow daemon-side openpty/spawn (hundreds
+            // of ms on Windows) doesn't stall reading further browser frames.
+            // The 2s discovery poll then attaches + mirrors the new session.
+            let cols = v.get("cols").and_then(|x| x.as_u64()).unwrap_or(80) as u16;
+            let rows = v.get("rows").and_then(|x| x.as_u64()).unwrap_or(24) as u16;
+            let cwd = v.get("cwd").and_then(|x| x.as_str()).map(|s| s.to_string());
+            let daemon = daemon.clone();
+            tokio::spawn(async move {
+                match daemon.open(cols, rows, cwd).await {
+                    Ok(id) => eprintln!("[agent] opened new session {id} ({cols}x{rows})"),
+                    Err(e) => eprintln!("[agent] open failed: {e}"),
+                }
+            });
+        }
         "ping" => send_relay(relay_tx, Message::text(json!({ "t": "pong" }).to_string())),
         "hello" | "client_join" => {
             // A browser (re)joined: replay current state.

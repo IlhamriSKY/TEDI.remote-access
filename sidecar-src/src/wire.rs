@@ -29,6 +29,7 @@ pub struct SessionInfo {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ClientMsg {
     Hello { req_id: u64, version: u32 },
+    Open { req_id: u64, cols: u16, rows: u16, cwd: Option<String> },
     Attach { req_id: u64, session_id: Uuid, cols: u16, rows: u16 },
     Detach { req_id: u64, session_id: Uuid },
     Write { req_id: u64, session_id: Uuid, data_b64: String },

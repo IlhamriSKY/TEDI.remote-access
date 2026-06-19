@@ -1,14 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import { IconTerminal } from "@/lib/icons";
+import { IconTerminal, IconAdd } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import type { Remote } from "@/hooks/useRemote";
 
-// Terminal/SSH tab strip. The active tab carries a top stripe and the terminal
-// background colour so it visually "joins" the terminal below, making the
-// current tab unmistakable. SSH tabs get a sky stripe + badge so local vs
-// remote is obvious. Horizontally scrollable on narrow screens. This is the
-// primary navigation surface.
+// Terminal/SSH tab strip. The active tab carries a LEFT accent stripe (matching
+// the TEDI desktop app's tab style) plus the terminal background colour so it
+// visually "joins" the terminal below, making the current tab unmistakable. SSH
+// tabs get a sky stripe + badge so local vs remote is obvious. Horizontally
+// scrollable on narrow screens. This is the primary navigation surface.
 export function TabBar({ remote }: { remote: Remote }) {
   const { sessions, activeId, setActiveId } = remote;
   if (sessions.length === 0) return null;
@@ -39,7 +39,10 @@ export function TabBar({ remote }: { remote: Remote }) {
           >
             {active && (
               <span
-                className={cn("absolute inset-x-0 top-0 h-0.5", ssh ? "bg-[#38bdf8]" : "bg-terminal")}
+                className={cn(
+                  "pointer-events-none absolute top-1/2 left-0 h-4 w-[3px] -translate-y-1/2",
+                  ssh ? "bg-[#38bdf8]" : "bg-terminal",
+                )}
                 aria-hidden
               />
             )}
@@ -67,6 +70,15 @@ export function TabBar({ remote }: { remote: Remote }) {
           </button>
         );
       })}
+      <button
+        type="button"
+        title="New terminal"
+        aria-label="New terminal"
+        onClick={() => remote.newTerminal()}
+        className="flex shrink-0 items-center justify-center px-3 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <HugeiconsIcon icon={IconAdd} size={14} strokeWidth={1.8} />
+      </button>
     </div>
   );
 }

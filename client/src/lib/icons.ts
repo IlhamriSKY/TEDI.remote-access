@@ -3,6 +3,7 @@ export {
   TerminalIcon as IconTerminal,
   Logout01Icon as IconLogout,
   PlusSignIcon as IconFontUp,
+  PlusSignIcon as IconAdd,
   MinusSignIcon as IconFontDown,
   KeyboardIcon as IconKeyboard,
   ArrowUp01Icon as IconUp,

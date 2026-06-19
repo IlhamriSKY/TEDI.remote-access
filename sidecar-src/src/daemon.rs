@@ -185,6 +185,21 @@ impl DaemonClient {
         }
     }
 
+    /// Open a NEW PTY session in the daemon (the "new tab from the browser"
+    /// path). The daemon adds it to its global session map, so the agent's poll
+    /// loop discovers it on the next `list()` and mirrors it like any other.
+    /// Returns the new session id.
+    pub async fn open(&self, cols: u16, rows: u16, cwd: Option<String>) -> Result<Uuid, String> {
+        match self
+            .request(|rid| ClientMsg::Open { req_id: rid, cols, rows, cwd })
+            .await?
+        {
+            DaemonMsg::OpenOk { session_id, .. } => Ok(session_id),
+            DaemonMsg::Err { message, .. } => Err(message),
+            o => Err(format!("open: unexpected {o:?}")),
+        }
+    }
+
     /// `data_b64` must be base64 of the raw input bytes (the daemon decodes it
     /// and writes them to the PTY stdin) — same contract as `pty_write`.
     pub async fn write(&self, id: Uuid, data_b64: String) -> Result<(), String> {

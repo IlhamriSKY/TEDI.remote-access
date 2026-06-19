@@ -2,6 +2,16 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.5.0] - 2026-06-19
+
+- **New terminal from the browser.** A "+" in the tab strip opens a fresh
+  terminal on the host: the agent asks TEDI's PTY daemon to spawn one and it
+  streams in as a new tab (sized to your current view, then auto-focused).
+  Requires this version's agent, so reinstall the extension to update it.
+- **Tab style matches the TEDI app.** The active tab now shows a left accent
+  stripe (colored per kind: terminal or ssh) instead of a top stripe, so the
+  browser and the desktop app look consistent.
+
 ## [0.4.0] - 2026-06-19
 
 - **All three OSes TEDI supports.** The agent now builds and ships for Windows
