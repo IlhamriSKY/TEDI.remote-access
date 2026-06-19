@@ -2,6 +2,13 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.7.1] - 2026-06-19
+
+- **Repo structure now matches the other TEDI extensions.** The extension source
+  moved to `src/index.js` and is bundled into `extension.js` by `build.mjs`
+  (esbuild); `extension.js` is no longer committed (it is generated and built
+  into the release `.zip` by CI). No runtime change.
+
 ## [0.7.0] - 2026-06-19
 
 - **Hugeicon status-bar item.** The status bar now uses a host Hugeicon (globe)

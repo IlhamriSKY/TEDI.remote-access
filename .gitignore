@@ -5,7 +5,11 @@
 # Rust build artefacts
 /sidecar-src/target/
 
-# Node deps (client + server)
+# Built extension bundle — generated from src/ by `node build.mjs`. NOT
+# committed: CI (release.yml) builds it into the release .zip. Dev: npm run build.
+/extension.js
+
+# Node deps (root build tooling + client + server)
 node_modules/
 
 # Built browser SPA. Generated from client/ into server/public by

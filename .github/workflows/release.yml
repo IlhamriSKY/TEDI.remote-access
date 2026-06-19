@@ -96,6 +96,15 @@ jobs:
           npm ci
           npm run build
 
+      # extension.js is NOT committed (it's the generated bundle, same as the
+      # other extensions). Build it from src/ so the release .zip ships a fresh,
+      # verified bundle.
+      - name: Build extension.js from src/
+        run: |
+          npm ci
+          node build.mjs
+          node --check extension.js
+
       - name: Resolve version
         id: ver
         shell: bash

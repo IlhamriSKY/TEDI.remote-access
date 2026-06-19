@@ -231,6 +231,10 @@ This exposes a full shell to the internet, so treat it like SSH:
 git clone https://github.com/IlhamriSKY/TEDI.remote-access.git
 cd TEDI.remote-access
 
+# Extension bundle: src/index.js -> extension.js (the single file TEDI loads).
+# extension.js is generated, not committed; run this after editing src/.
+npm install && npm run build
+
 # Native agent (the sidecar that mirrors TEDI -> relay)
 cd sidecar-src && cargo build --release && cd ..
 # copy the binary into the matching sidecar/<os>-<arch>/ folder, for example:
@@ -249,7 +253,9 @@ Repo layout:
 
 | Path | What | Runs on |
 | --- | --- | --- |
-| `manifest.json`, `extension.js`, `icon.png` | The installable extension (spawns the agent, status bar, config). | TEDI (your PC) |
+| `manifest.json`, `icon.png` | Extension metadata + icon. | TEDI (your PC) |
+| `src/`, `build.mjs` | Extension source (`src/index.js`), bundled by esbuild into `extension.js`. | build-time |
+| `extension.js` | Built bundle TEDI loads (git-ignored; built into the release zip by CI). | TEDI (your PC) |
 | `sidecar-src/` | Rust agent source. | build-time |
 | `sidecar/` | CI-built agent binaries, per OS/arch (git-ignored; in the release zip). | your PC |
 | `client/` | Browser website source (React + Tailwind + shadcn, xterm.js). | build-time |
