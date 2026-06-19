@@ -5,8 +5,8 @@
 //!      `src-tauri/src/modules/pty_daemon/protocol.rs`) — length-prefixed
 //!      JSON over the local named pipe. Defined here so the agent stays a
 //!      standalone crate; keep these in lockstep with TEDI's PROTOCOL_VERSION.
-//!   2. Relay protocol (agent <-> browser, see REMOTE-ACCESS-SPEC.md s.7) —
-//!      JSON text frames carried opaquely by the relay. Built ad hoc with
+//!   2. Relay protocol (agent <-> browser) — JSON text frames carried
+//!      opaquely by the relay. Built ad hoc with
 //!      `serde_json::json!` in main.rs, so only the daemon types live here.
 
 use serde::{Deserialize, Serialize};

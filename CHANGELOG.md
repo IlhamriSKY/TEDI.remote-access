@@ -2,6 +2,23 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.4.0] - 2026-06-19
+
+- **All three OSes TEDI supports.** The agent now builds and ships for Windows
+  (x64), macOS (x64 + arm64), and Linux (x64). It connects to TEDI's daemon the
+  same way TEDI binds it on each OS: a kernel-namespaced pipe on Windows, a
+  filesystem socket (`$XDG_RUNTIME_DIR/tedi-ptyd.sock`, else
+  `$TMPDIR/tedi-ptyd-<USER>.sock`) on macOS/Linux. The agent uses the OS-native
+  TLS stack (SChannel / Secure Transport / OpenSSL); Linux statically vendors
+  OpenSSL so the binary needs no system `libssl`.
+- **Website ships as source, not a build.** The release bundle now carries the
+  browser UI source (`client/`) and the relay (`server/`); you build the UI on
+  deploy. CI verifies the website still compiles but no longer ships a pre-built
+  `public/`.
+- **Docs consolidated into the README.** Removed the `docs/` folder and the
+  separate `server/README.md`; everything (setup, build-from-source, SSH,
+  security) now lives in one clear README.
+
 ## [0.3.1] - 2026-06-19
 
 - **Fix install from GitHub.** The release shipped two `.zip` assets and TEDI's

@@ -1,6 +1,6 @@
 [package]
 name = "tedi-remote-agent"
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
 description = "TEDI remote-access agent: mirrors live PTY daemon sessions to a relay over WSS"
 license = "Apache-2.0"
@@ -21,10 +21,18 @@ serde_json = "1"
 uuid = { version = "1", features = ["serde", "v4"] }
 base64 = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
-# Outbound WSS to the relay. native-tls = Windows SChannel + OS root store
-# (the agent only ships for Windows), avoiding the rustls crypto-provider dance.
+# Outbound WSS to the relay via the OS-native TLS stack, matching the three OSes
+# TEDI core supports: SChannel on Windows, Secure Transport on macOS, OpenSSL on
+# Linux. native-tls avoids the rustls crypto-provider dance and uses each OS root
+# store. On Linux we vendor OpenSSL (below) so the released binary is
+# self-contained (no libssl needed on the user's machine).
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
+
+# Linux only: statically build OpenSSL into the binary so native-tls has no
+# runtime libssl dependency. Untouched on Windows/macOS (they use the OS stack).
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
 
 [profile.release]
 opt-level = "z"

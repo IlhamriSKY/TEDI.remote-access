@@ -1,8 +1,9 @@
-//! Daemon client. Connects to TEDI's PTY daemon over the per-user named pipe
-//! as an INDEPENDENT second client (the GUI is the first). Speaks the
+//! Daemon client. Connects to TEDI's PTY daemon as an INDEPENDENT second client
+//! (the GUI is the first) over the same per-user endpoint TEDI binds: a
+//! kernel-namespaced pipe on Windows, a filesystem socket on Unix. Speaks the
 //! length-prefixed JSON protocol, correlates request/response by `req_id` via
 //! a reader thread, and forwards push `Data`/`Exit` events into an async
-//! channel. Validated by `spike-daemon-attach` (REMOTE-ACCESS-SPEC.md s.10 #1).
+//! channel. Validated by the daemon multi-subscriber spike.
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
@@ -12,7 +13,7 @@ use std::thread;
 use std::time::Duration;
 
 use interprocess::local_socket::traits::Stream as _StreamTrait;
-use interprocess::local_socket::{GenericNamespaced, Stream, ToNsName};
+use interprocess::local_socket::Stream;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
@@ -59,10 +60,24 @@ impl DaemonClient {
         pipe_name: &str,
         events: UnboundedSender<DaemonEvent>,
     ) -> Result<Arc<Self>, String> {
-        let ns = pipe_name
-            .to_ns_name::<GenericNamespaced>()
-            .map_err(|e| format!("pipe name: {e}"))?;
-        let stream = Stream::connect(ns).map_err(|e| format!("connect daemon pipe: {e}"))?;
+        // `pipe_name` is a namespaced name on Windows, a filesystem path on Unix
+        // (see `default_socket()` in main.rs); connect the matching way.
+        #[cfg(windows)]
+        let stream = {
+            use interprocess::local_socket::{GenericNamespaced, ToNsName};
+            let name = pipe_name
+                .to_ns_name::<GenericNamespaced>()
+                .map_err(|e| format!("pipe name: {e}"))?;
+            Stream::connect(name).map_err(|e| format!("connect daemon pipe: {e}"))?
+        };
+        #[cfg(unix)]
+        let stream = {
+            use interprocess::local_socket::{GenericFilePath, ToFsName};
+            let name = pipe_name
+                .to_fs_name::<GenericFilePath>()
+                .map_err(|e| format!("socket path: {e}"))?;
+            Stream::connect(name).map_err(|e| format!("connect daemon socket: {e}"))?
+        };
         let stream = Arc::new(stream);
 
         write_msg(

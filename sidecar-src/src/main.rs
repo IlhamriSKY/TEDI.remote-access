@@ -3,7 +3,7 @@
 //! Spawned by the `tedi.remote-access` extension via `shell_bg_spawn_direct`.
 //! It mirrors every live PTY daemon session and bridges them to a self-hosted
 //! relay over a single outbound WSS connection, so a browser anywhere can
-//! attach to the terminals you have open in TEDI. See REMOTE-ACCESS-SPEC.md.
+//! attach to the terminals you have open in TEDI. See README.md.
 //!
 //! Data flow:
 //!   PTY daemon  --(named pipe)-->  AGENT  --(outbound WSS)-->  relay  -->  browser
@@ -51,6 +51,9 @@ struct Config {
     pipe_name: String,
 }
 
+/// FNV-1a, matching TEDI's `pty_daemon::paths::fnv1a` (the Windows pipe-name
+/// suffix). Only the Windows socket name uses it.
+#[cfg(windows)]
 fn fnv1a(bytes: &[u8]) -> u32 {
     let mut h: u32 = 0x811c_9dc5;
     for &b in bytes {
@@ -60,9 +63,33 @@ fn fnv1a(bytes: &[u8]) -> u32 {
     h
 }
 
-fn default_pipe_name() -> String {
+/// The daemon endpoint TEDI listens on, derived exactly like TEDI's
+/// `pty_daemon::paths` so the agent attaches to the same socket on every OS:
+///   - Windows: a kernel-namespaced pipe `tedi-ptyd-<fnv1a(USERNAME)>`.
+///   - Unix: a filesystem socket `$XDG_RUNTIME_DIR/tedi-ptyd.sock`, falling back
+///     to `$TMPDIR/tedi-ptyd-<USER>.sock` (or `/tmp`).
+#[cfg(windows)]
+fn default_socket() -> String {
     let user = std::env::var("USERNAME").unwrap_or_else(|_| "default".into());
     format!("tedi-ptyd-{:08x}", fnv1a(user.as_bytes()))
+}
+
+#[cfg(unix)]
+fn default_socket() -> String {
+    use std::path::PathBuf;
+    if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+        return PathBuf::from(dir)
+            .join("tedi-ptyd.sock")
+            .to_string_lossy()
+            .into_owned();
+    }
+    let tmp = std::env::var_os("TMPDIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let user = std::env::var("USER").unwrap_or_else(|_| "default".into());
+    tmp.join(format!("tedi-ptyd-{user}.sock"))
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn load_config() -> Result<Config, String> {
@@ -95,14 +122,14 @@ fn load_config() -> Result<Config, String> {
                 .get("pipe_name")
                 .and_then(|x| x.as_str())
                 .map(|s| s.to_string())
-                .unwrap_or_else(default_pipe_name),
+                .unwrap_or_else(default_socket),
         });
     }
     Ok(Config {
         relay_url: std::env::var("TEDI_RELAY_URL").map_err(|_| "TEDI_RELAY_URL not set".to_string())?,
         token: std::env::var("TEDI_AGENT_TOKEN").map_err(|_| "TEDI_AGENT_TOKEN not set".to_string())?,
         name: std::env::var("TEDI_AGENT_NAME").unwrap_or_else(|_| "tedi-host".into()),
-        pipe_name: std::env::var("TEDI_PIPE_NAME").unwrap_or_else(|_| default_pipe_name()),
+        pipe_name: std::env::var("TEDI_PIPE_NAME").unwrap_or_else(|_| default_socket()),
     })
 }
 

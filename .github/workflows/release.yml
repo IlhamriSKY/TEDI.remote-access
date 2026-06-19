@@ -1,15 +1,16 @@
 name: Release
 
 # Tag-triggered release (`vX.Y.Z`):
-#   1. build the `tedi-remote-agent` sidecar per platform
-#   2. build the browser SPA (client/ -> server/public)
+#   1. build the `tedi-remote-agent` sidecar for all three OSes TEDI supports
+#      (Windows, macOS x64 + arm64, Linux x64)
+#   2. verify the browser SPA still builds (it is NOT shipped pre-built)
 #   3. package the installable extension .zip (TEDI reads it from
-#      releases/latest) AND a ready-to-deploy relay .zip
+#      releases/latest) AND a relay+website SOURCE bundle (.tar.gz) the deployer
+#      builds from (see README "Self-host the relay")
 #   4. upload both to the GitHub release
 #
-# Only windows-x86_64 is built for now (the agent uses native-tls = SChannel on
-# Windows). Add macos/linux targets here when those hosts are supported; switch
-# the agent to rustls+ring first to drop the OpenSSL build dep on Linux.
+# The agent uses OS-native TLS (SChannel / Secure Transport / OpenSSL). On Linux
+# OpenSSL is vendored (Cargo.toml) so no system libssl is needed at build or run.
 
 on:
   push:
@@ -36,6 +37,18 @@ jobs:
             runner: windows-latest
             sidecar_dir: windows-x86_64
             exe_suffix: ".exe"
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            sidecar_dir: macos-x86_64
+            exe_suffix: ""
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            sidecar_dir: macos-aarch64
+            exe_suffix: ""
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            sidecar_dir: linux-x86_64
+            exe_suffix: ""
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -75,7 +88,9 @@ jobs:
         with:
           node-version: 20
 
-      - name: Build browser client (-> server/public)
+      # Verify the website still builds. The build output is NOT shipped — the
+      # relay bundle carries client/ source and the deployer builds it (README).
+      - name: Verify browser client builds
         working-directory: client
         run: |
           npm ci
@@ -129,10 +144,15 @@ jobs:
           ver="${{ steps.ver.outputs.version }}"
           ext="dist/tedi.remote-access-${ver}.zip"
           zip -r "$ext" manifest.json extension.js icon.png README.md CHANGELOG.md LICENSE sidecar
-          # Relay bundle ships as .tar.gz (NOT .zip) so the extension .zip is the
-          # only .zip asset; TEDI's installer picks the first .zip in the release.
+          # Relay + website SOURCE bundle, as .tar.gz (NOT .zip) so the extension
+          # .zip stays the only .zip asset — TEDI's installer picks the first .zip
+          # in the release. We ship the website source (client/) and the relay
+          # (server/), NOT a pre-built UI; the deployer builds it per README.
           relay="dist/tedi-remote-relay-${ver}.tar.gz"
-          tar -czf "$relay" -C server server.js package.json package-lock.json gen-hash.js public deploy README.md
+          tar -czf "$relay" \
+            --exclude='node_modules' \
+            --exclude='server/public' \
+            client server README.md CHANGELOG.md LICENSE
           unzip -l "$ext"
           echo "ext=$ext"     >> "$GITHUB_OUTPUT"
           echo "relay=$relay" >> "$GITHUB_OUTPUT"

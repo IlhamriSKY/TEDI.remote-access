@@ -9,8 +9,9 @@
 node_modules/
 
 # Built browser SPA. Generated from client/ into server/public by
-# `cd client && npm run build`. NOT committed: CI builds it into the relay.zip,
-# and the relay serves it on the VPS. Build locally for dev.
+# `cd client && npm run build`. NOT committed and NOT shipped pre-built: the
+# release bundles client/ SOURCE and you build it on deploy (see README). CI
+# only builds it to verify the website still compiles.
 /server/public/
 
 # Release artefacts

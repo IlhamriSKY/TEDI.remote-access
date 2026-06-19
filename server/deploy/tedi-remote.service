@@ -4,11 +4,13 @@ After=network.target
 
 [Service]
 Type=simple
-User=msi
-WorkingDirectory=/var/www/html/tedi-remote
-EnvironmentFile=/var/www/html/tedi-remote/.env
-# nvm-managed node. If you upgrade node, update this path (or symlink it).
-ExecStart=/home/msi/.nvm/versions/node/v22.22.2/bin/node /var/www/html/tedi-remote/server.js
+# Your Linux account that owns /var/www/html/tedi-remote.
+User=<your-user>
+WorkingDirectory=/var/www/html/tedi-remote/server
+EnvironmentFile=/var/www/html/tedi-remote/server/.env
+# Point ExecStart at your node binary (an nvm path is shown). Update it if you
+# upgrade node, or symlink a stable path.
+ExecStart=/home/<your-user>/.nvm/versions/node/<version>/bin/node /var/www/html/tedi-remote/server/server.js
 Restart=always
 RestartSec=2
 NoNewPrivileges=true

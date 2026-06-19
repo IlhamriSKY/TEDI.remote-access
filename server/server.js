@@ -2,7 +2,7 @@
 //
 // A deliberately "dumb" broker: it authenticates one host AGENT (bearer token)
 // and many browser CLIENTS (login cookie), then pipes opaque JSON frames
-// between them. It never parses terminal data. See ../REMOTE-ACCESS-SPEC.md s.5.
+// between them. It never parses terminal data. See ../README.md.
 //
 // Endpoints:
 //   GET  /                 -> SPA shell (public/index.html), built from client/
