@@ -2,6 +2,14 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.6.3] - 2026-06-19
+
+- **One enable/disable.** Removed the separate "Enable remote access" setting and
+  the Ctrl+Alt+R toggle command. The extension's own enable toggle (on its card
+  in Settings) is now the single on/off: TEDI starts the agent on enable and
+  stops it on disable. Settings collapse to just Relay, Agent token, Host label.
+- Dropped the now-unused `settings:write` and `secrets:write` permissions.
+
 ## [0.6.2] - 2026-06-19
 
 - Shorten the Relay setting description to just the domain example.

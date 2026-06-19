@@ -1,8 +1,8 @@
 {
   "id": "tedi.remote-access",
   "name": "Remote Access",
-  "version": "0.6.2",
-  "description": "Mirror your open TEDI terminals to a browser anywhere, via your self-hosted relay. Toggle with Ctrl+Alt+R.",
+  "version": "0.6.3",
+  "description": "Mirror your open TEDI terminals to a browser anywhere, via your self-hosted relay.",
   "author": "IlhamriSKY",
   "homepage": "https://github.com/IlhamriSKY/TEDI",
   "icon": "icon.png",
@@ -16,21 +16,12 @@
     "invoke:ssh_write",
     "invoke:ssh_resize",
     "settings:read",
-    "settings:write",
     "secrets:read",
-    "secrets:write",
     "ui:toast",
     "statusbar:write"
   ],
   "contributes": {
     "settings": [
-      {
-        "id": "enabled",
-        "type": "boolean",
-        "label": "Enable remote access",
-        "default": false,
-        "description": "Spawn the agent that mirrors your open terminals to the relay while TEDI is running."
-      },
       {
         "id": "relayUrl",
         "type": "string",
@@ -52,12 +43,6 @@
         "default": "TEDI host",
         "description": "Name shown to the browser client."
       }
-    ],
-    "commands": [
-      { "id": "tedi.remote-access.toggle", "title": "Toggle Remote Access", "category": "Remote" }
-    ],
-    "keybindings": [
-      { "command": "tedi.remote-access.toggle", "key": "Mod+Alt+R" }
     ]
   },
   "engines": { "tedi": ">=0.3.42" }

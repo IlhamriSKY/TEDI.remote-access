@@ -95,12 +95,6 @@ async function startAgent() {
   const ctx = ctxRef;
   if (!ctx || handle != null || booting) return;
 
-  const enabled = await ctx.settings.get("enabled");
-  if (!enabled) {
-    setStatus("default", "Remote Access: off");
-    return;
-  }
-
   const program = agentProgram(ctx);
   if (!program) {
     setStatus("error", "Remote Access: unsupported platform");
@@ -362,17 +356,13 @@ function handleSshRelayFrame(ctx, m) {
 export async function activate(ctx) {
   ctxRef = ctx;
 
-  ctx.registerCommandHandler("tedi.remote-access.toggle", async () => {
-    const enabled = await ctx.settings.get("enabled");
-    await ctx.settings.set("enabled", !enabled);
-    // settings.onChange below picks this up and (re)starts/stops the agent.
-  });
-
-  for (const key of ["enabled", "agentToken", "relayUrl", "agentName"]) {
+  // The extension's own enable/disable toggle is the single on/off: TEDI calls
+  // activate() / deactivate() when it is flipped, so there is no separate
+  // "enabled" setting. Just (re)start the agent when the relay config changes.
+  for (const key of ["agentToken", "relayUrl", "agentName"]) {
     ctx.settings.onChange(key, scheduleRestart);
   }
 
-  setStatus("default", "Remote Access: off");
   await startAgent();
 }
 

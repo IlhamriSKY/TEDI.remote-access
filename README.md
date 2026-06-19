@@ -54,9 +54,9 @@ Open **Settings > Extensions > Remote Access** and set:
 | **Relay** | your relay's domain, e.g. `remote.example.com` |
 | **Agent token** | the `AGENT_TOKEN` you set on the relay (stored in the OS keychain) |
 | **Host label** | a name shown to the browser (for example your PC name) |
-| **Enable remote access** | turn **on** |
 
-The status-bar icon shows the connection state. Toggle anytime with **Ctrl+Alt+R**.
+Enable the extension itself (the toggle on its card) to start mirroring; disable
+it to stop. The status-bar icon shows the connection state.
 Then open `https://<your-domain>` on any device, sign in, and your open terminals
 appear as tabs.
 
@@ -208,8 +208,8 @@ main TEDI repo, not this extension.
 | --- | --- |
 | `invoke:shell_bg_spawn_direct` / `invoke:shell_bg_logs` / `invoke:shell_bg_kill` | Spawn, read the `READY` handshake of, and stop the agent. |
 | `invoke:ssh_list_sessions` / `invoke:ssh_attach` / `invoke:ssh_write` / `invoke:ssh_resize` | Mirror SSH tabs (no-ops on builds without these commands). |
-| `settings:read` / `settings:write` | Relay URL, host label, enabled flag. |
-| `secrets:read` / `secrets:write` | Store the agent token in the OS keychain. |
+| `settings:read` | Read the relay domain and host label. |
+| `secrets:read` | Read the agent token from the OS keychain. |
 | `ui:toast` | Connection and error toasts. |
 | `statusbar:write` | The connection-state status-bar icon. |
 
