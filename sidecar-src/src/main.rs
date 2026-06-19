@@ -16,7 +16,7 @@ mod wire;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use futures_util::{SinkExt, StreamExt};
@@ -204,6 +204,35 @@ fn parse_uuid(v: &Value) -> Option<Uuid> {
     v.as_str().and_then(|s| Uuid::parse_str(s).ok())
 }
 
+/// Safety bounds on browser-initiated `open`. A valid relay session lets ANY
+/// browser spawn real shells on the host, so cap how many sessions we mirror and
+/// throttle the open rate - a malicious or buggy client must not be able to
+/// fork-bomb the machine with terminals. The cap is generous (real users rarely
+/// keep this many tabs); the rate limit stops a burst from outrunning the ~2s
+/// discovery poll (which is what actually surfaces the new sessions).
+const MAX_MIRRORED_SESSIONS: usize = 24;
+const MIN_OPEN_INTERVAL: Duration = Duration::from_millis(300);
+
+fn open_allowed(sessions: &Sessions) -> bool {
+    if sessions.lock().unwrap().len() >= MAX_MIRRORED_SESSIONS {
+        eprintln!("[agent] open rejected: at session cap ({MAX_MIRRORED_SESSIONS})");
+        return false;
+    }
+    // At most one accepted open per MIN_OPEN_INTERVAL across all browsers.
+    // `Mutex::new` is const, so the static needs no lazy init.
+    static LAST_OPEN: Mutex<Option<Instant>> = Mutex::new(None);
+    let mut last = LAST_OPEN.lock().unwrap();
+    let now = Instant::now();
+    if let Some(prev) = *last {
+        if now.duration_since(prev) < MIN_OPEN_INTERVAL {
+            eprintln!("[agent] open rejected: rate limit");
+            return false;
+        }
+    }
+    *last = Some(now);
+    true
+}
+
 async fn handle_browser_frame(
     text: &str,
     daemon: &Arc<DaemonClient>,
@@ -258,19 +287,22 @@ async fn handle_browser_frame(
         }
         "open" => {
             // "New tab from the browser": ask the daemon to spawn a fresh PTY.
-            // Spawn the request so the slow daemon-side openpty/spawn (hundreds
-            // of ms on Windows) doesn't stall reading further browser frames.
-            // The 2s discovery poll then attaches + mirrors the new session.
-            let cols = v.get("cols").and_then(|x| x.as_u64()).unwrap_or(80) as u16;
-            let rows = v.get("rows").and_then(|x| x.as_u64()).unwrap_or(24) as u16;
-            let cwd = v.get("cwd").and_then(|x| x.as_str()).map(|s| s.to_string());
-            let daemon = daemon.clone();
-            tokio::spawn(async move {
-                match daemon.open(cols, rows, cwd).await {
-                    Ok(id) => eprintln!("[agent] opened new session {id} ({cols}x{rows})"),
-                    Err(e) => eprintln!("[agent] open failed: {e}"),
-                }
-            });
+            // Guarded by a session cap + rate limit so a browser can't fork-bomb
+            // the host. Spawn the request so the slow daemon-side openpty/spawn
+            // (hundreds of ms on Windows) doesn't stall reading further browser
+            // frames. The 2s discovery poll then attaches + mirrors the session.
+            if open_allowed(sessions) {
+                let cols = v.get("cols").and_then(|x| x.as_u64()).unwrap_or(80) as u16;
+                let rows = v.get("rows").and_then(|x| x.as_u64()).unwrap_or(24) as u16;
+                let cwd = v.get("cwd").and_then(|x| x.as_str()).map(|s| s.to_string());
+                let daemon = daemon.clone();
+                tokio::spawn(async move {
+                    match daemon.open(cols, rows, cwd).await {
+                        Ok(id) => eprintln!("[agent] opened new session {id} ({cols}x{rows})"),
+                        Err(e) => eprintln!("[agent] open failed: {e}"),
+                    }
+                });
+            }
         }
         "close" => {
             // Close a tab from the browser: permanently kill the daemon PTY for

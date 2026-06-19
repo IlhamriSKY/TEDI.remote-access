@@ -2,6 +2,24 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.4] - 2026-06-20
+
+- **Browser-opened tabs reliably appear in the desktop app and show the
+  desktop's tab number.** Now requires TEDI v0.3.52, which re-enables the desktop
+  adoption of daemon sessions created from the browser "+" and republishes each
+  terminal's real tab number. The agent already forwarded these over the relay;
+  this pairs the extension with the matching host fix (both were withdrawn in
+  TEDI 0.3.49 on a misdiagnosis, restored after the real launch-hang cause, sync
+  git on the UI thread, was fixed in 0.3.50).
+- **Safety: the agent caps browser-initiated terminal creation.** A browser can
+  no longer spawn unbounded shells via "+": at most 24 mirrored sessions, and at
+  most one new terminal per 300 ms across all connected browsers.
+- **Mobile: safe-area insets.** The web UI pads itself off the notch and the home
+  indicator (viewport-fit=cover) so the header, tab bar, and on-screen key row
+  are never clipped on phones with rounded corners or a home bar.
+- Docs: corrected the protocol note that wrongly claimed "resize is never sent"
+  (it is sent in fit-host mode for the active terminal).
+
 ## [0.8.3] - 2026-06-19
 
 - **Web terminals stay full-size even when the app pane is tiny.** New "Fit host

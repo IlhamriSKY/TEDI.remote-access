@@ -1,6 +1,6 @@
 {
   "name": "tedi-remote-relay",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "private": true,
   "type": "commonjs",
   "description": "TEDI remote-access relay: pairs the host agent with browser clients over WSS.",

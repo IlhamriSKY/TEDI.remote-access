@@ -28,7 +28,10 @@ export type ServerFrame =
 // bridge), built inline via `send` in useRemote:
 //   { t:"hello" } | { t:"ping" } | { t:"input"; id; b64 }
 //   | { t:"open"; cols; rows } | { t:"close"; id }
-// ("resize" is no longer sent: the browser scales to fit client-side.)
+//   | { t:"resize"; id; cols; rows }
+// ("resize" is sent only in "fit host to my screen" mode, for the active
+// terminal, to reflow the host PTY to the browser's size; in mirror mode the
+// browser adopts the host's cols/rows and scales to fit client-side instead.)
 
 // xterm themes mirroring TEDI's dark + light ANSI palettes (globals.css).
 export const TERMINAL_THEME_DARK = {

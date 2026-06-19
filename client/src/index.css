@@ -109,6 +109,15 @@
   #root {
     height: 100%;
   }
+  /* Safe-area insets for notched / home-indicator phones. `viewport-fit=cover`
+   * (index.html) lets the app paint edge-to-edge; we then pad the shell off the
+   * unsafe edges so the header, tab bar, and mobile key row never sit under the
+   * notch or the home bar. No-op on desktop (the insets resolve to 0). */
+  #root {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing: border-box;
+  }
   body {
     margin: 0;
     overflow: hidden;
