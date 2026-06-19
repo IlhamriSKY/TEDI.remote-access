@@ -44,11 +44,19 @@ fn write_msg(stream: &Stream, msg: &ClientMsg) -> io::Result<()> {
     s.flush()
 }
 
+/// Cap on a single daemon frame (matches the relay's WS payload cap) so a
+/// malformed or hostile 4-byte length prefix can't trigger a multi-GiB
+/// allocation in the reader thread.
+const MAX_FRAME: usize = 16 * 1024 * 1024;
+
 fn read_msg(stream: &Stream) -> io::Result<DaemonMsg> {
     let mut s = stream;
     let mut prefix = [0u8; 4];
     s.read_exact(&mut prefix)?;
     let len = u32::from_be_bytes(prefix) as usize;
+    if len > MAX_FRAME {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "daemon frame too large"));
+    }
     let mut buf = vec![0u8; len];
     s.read_exact(&mut buf)?;
     serde_json::from_slice(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))

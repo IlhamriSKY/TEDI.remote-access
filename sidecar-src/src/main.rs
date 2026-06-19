@@ -214,9 +214,15 @@ async fn handle_browser_frame(
                 v.get("id").and_then(parse_uuid),
                 v.get("b64").and_then(|x| x.as_str()),
             ) {
-                // b64 is base64 of the raw keystroke bytes; forward as-is.
-                if let Err(e) = daemon.write(id, b64.to_string()).await {
-                    eprintln!("[agent] write to {id} failed: {e}");
+                // Only write to sessions we actually mirror: the relay
+                // broadcasts browser input to every source, so a frame whose id
+                // belongs to another source must never reach our daemon.
+                let owned = sessions.lock().unwrap().contains_key(&id);
+                if owned {
+                    // b64 is base64 of the raw keystroke bytes; forward as-is.
+                    if let Err(e) = daemon.write(id, b64.to_string()).await {
+                        eprintln!("[agent] write to {id} failed: {e}");
+                    }
                 }
             }
         }
@@ -233,13 +239,16 @@ async fn handle_browser_frame(
                 v.get("cols").and_then(|x| x.as_u64()),
                 v.get("rows").and_then(|x| x.as_u64()),
             ) {
-                let daemon = daemon.clone();
-                let (cols, rows) = (cols as u16, rows as u16);
-                tokio::spawn(async move {
-                    if let Err(e) = daemon.resize(id, cols, rows).await {
-                        eprintln!("[agent] resize {id} failed: {e}");
-                    }
-                });
+                let owned = sessions.lock().unwrap().contains_key(&id);
+                if owned {
+                    let daemon = daemon.clone();
+                    let (cols, rows) = (cols as u16, rows as u16);
+                    tokio::spawn(async move {
+                        if let Err(e) = daemon.resize(id, cols, rows).await {
+                            eprintln!("[agent] resize {id} failed: {e}");
+                        }
+                    });
+                }
             }
         }
         "open" => {

@@ -1,6 +1,6 @@
 [package]
 name = "tedi-remote-agent"
-version = "0.6.3"
+version = "0.7.0"
 edition = "2021"
 description = "TEDI remote-access agent: mirrors live PTY daemon sessions to a relay over WSS"
 license = "Apache-2.0"

@@ -2,6 +2,22 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.7.0] - 2026-06-19
+
+- **Hugeicon status-bar item.** The status bar now uses a host Hugeicon (globe)
+  instead of the bundled PNG, matching the other extensions.
+- **Security hardening (from a full audit of the agent + extension):**
+  - The Relay setting is forced to `wss://`: a plaintext `ws://` / `http://`
+    value is upgraded, so the agent token and the terminal stream are never sent
+    unencrypted.
+  - The agent only writes input/resize to sessions it actually mirrors (the relay
+    broadcasts browser input to every source, so foreign ids are now ignored).
+  - The daemon frame reader caps frame size, so a bad 4-byte length prefix can no
+    longer trigger a multi-GiB allocation.
+  - The agent is supervised: if it exits (for example when the PTY daemon
+    restarts) it reconnects instead of silently going offline.
+  - The host label is trimmed and length-capped.
+
 ## [0.6.3] - 2026-06-19
 
 - **One enable/disable.** Removed the separate "Enable remote access" setting and

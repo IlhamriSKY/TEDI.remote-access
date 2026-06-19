@@ -17,8 +17,11 @@ const DEFAULT_RELAY = "";
 function normalizeRelayUrl(input) {
   let s = (input || "").trim();
   if (!s) return "";
-  if (/^https?:\/\//i.test(s)) s = s.replace(/^http/i, "ws"); // http(s):// -> ws(s)://
-  else if (!/^wss?:\/\//i.test(s)) s = "wss://" + s; // no scheme -> default wss://
+  // Force TLS: strip whatever scheme was given and use wss://, so the agent
+  // token and the live terminal stream are never sent over plaintext ws:// /
+  // http://. The relay only ever listens on wss behind nginx anyway.
+  s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  s = "wss://" + s;
   s = s.replace(/\/+$/, ""); // drop trailing slashes
   if (!/\/agent$/i.test(s)) s += "/agent"; // ensure the /agent endpoint
   return s;
@@ -49,7 +52,7 @@ function agentProgram(ctx) {
 
 function setStatus(tone, tooltip) {
   try {
-    ctxRef.statusBar.setItem({ id: "remote", icon: "ext-asset:icon.png", tooltip, tone });
+    ctxRef.statusBar.setItem({ id: "remote", icon: "hugeicon:Globe02Icon", tooltip, tone });
   } catch {
     /* statusbar:write missing — non-fatal */
   }
@@ -112,7 +115,8 @@ async function startAgent() {
     ctx.ui.toast("Remote Access: set your relay URL in Settings -> Extensions", { variant: "warning" });
     return;
   }
-  const agentName = (await ctx.settings.get("agentName")) || "TEDI host";
+  let agentName = String((await ctx.settings.get("agentName")) || "").trim().slice(0, 64);
+  if (!agentName) agentName = "TEDI host";
 
   booting = true;
   setStatus("default", "Remote Access: connecting...");
@@ -123,6 +127,7 @@ async function startAgent() {
     setStatus("success", "Remote Access: online (" + agentName + ")");
     ctx.ui.toast("Remote Access: agent online", { variant: "success" });
     ctx.logger.info("agent online, handle", handle);
+    watchAgent(ctx, handle);
     // Also mirror SSH tabs as a second relay source (no-ops on TEDI builds
     // without ssh_attach / ctx.invokeChannel).
     startSshBridge(ctx, relayUrl, token).catch(() => {});
@@ -141,12 +146,48 @@ async function startAgent() {
 
 async function stopAgent() {
   const ctx = ctxRef;
+  stopWatch();
   stopSshBridge();
   if (ctx && handle != null) {
     await ctx.invoke("shell_bg_kill", { handle }).catch(() => {});
     handle = null;
   }
   setStatus("default", "Remote Access: off");
+}
+
+// Supervise the spawned agent: if it exits (for example the PTY daemon restarts
+// and the agent self-exits), clear the handle and reconnect, so mirroring does
+// not silently die while the status bar still says "online".
+let watchTimer = null;
+function stopWatch() {
+  if (watchTimer) {
+    clearInterval(watchTimer);
+    watchTimer = null;
+  }
+}
+function watchAgent(ctx, h) {
+  stopWatch();
+  let offset = 0;
+  watchTimer = setInterval(async () => {
+    if (handle !== h) {
+      stopWatch();
+      return;
+    }
+    let resp;
+    try {
+      resp = await ctx.invoke("shell_bg_logs", { handle: h, sinceOffset: offset });
+    } catch {
+      return;
+    }
+    if (resp && typeof resp.next_offset === "number") offset = resp.next_offset;
+    if (resp && resp.exited) {
+      stopWatch();
+      handle = null;
+      ctx.logger.info("agent exited (code " + (resp.exit_code != null ? resp.exit_code : "?") + "); reconnecting");
+      setStatus("warning", "Remote Access: reconnecting...");
+      scheduleRestart();
+    }
+  }, 3000);
 }
 
 let restartTimer = null;
