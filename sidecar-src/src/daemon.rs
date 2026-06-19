@@ -221,6 +221,20 @@ impl DaemonClient {
         }
     }
 
+    /// Permanently kill a session's PTY (the browser "close tab" path). The
+    /// daemon removes the session and pushes `Exit` to every subscriber, so the
+    /// desktop app's tab closes too. Mirrors TEDI core's `ClientMsg::Close`.
+    pub async fn close(&self, id: Uuid) -> Result<(), String> {
+        match self
+            .request(|rid| ClientMsg::Close { req_id: rid, session_id: id })
+            .await?
+        {
+            DaemonMsg::Ok { .. } => Ok(()),
+            DaemonMsg::Err { message, .. } => Err(message),
+            o => Err(format!("close: unexpected {o:?}")),
+        }
+    }
+
     /// Resize a session's PTY. No longer called: the browser mirrors at the
     /// host's real size and scales to fit client-side, so it never resizes the
     /// shared PTY (which would reflow the desktop terminal). Kept for protocol

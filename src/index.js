@@ -380,6 +380,18 @@ function handleSshRelayFrame(ctx, m) {
     if (!Number.isNaN(id) && m.b64) {
       ctx.invoke("ssh_write", { id, data: b64ToStr(m.b64) }).catch(() => {});
     }
+  } else if (m.t === "close" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
+    // Close a tab from the browser: end the SSH session. ssh_close tears down the
+    // PTY; the pump's exit event reaches the browser and the next pollSsh drops
+    // it from the published list. (Daemon "close" for uuid ids is the agent's job.)
+    const id = parseInt(m.id.slice(4), 10);
+    if (!Number.isNaN(id)) {
+      ctx.invoke("ssh_close", { id }).catch(() => {});
+      sshAttached.delete(id);
+      // ssh_close aborts the pump, so its Exit event isn't guaranteed; tell the
+      // browser the tab is dead now (the next pollSsh authoritatively drops it).
+      sshSend({ t: "exit", id: m.id, code: 0 });
+    }
   } else if (m.t === "resize") {
     // Ignored. The browser mirrors each tab at the host's real size and scales
     // to fit client-side, so it never sends resize. A mirrored SSH tab is the

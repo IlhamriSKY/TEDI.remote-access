@@ -562,6 +562,19 @@ export function useRemote() {
     send({ t: "open", cols, rows });
   }, [send]);
 
+  // Permanently close (kill) a tab. The host kills the daemon PTY (or the SSH
+  // bridge runs ssh_close), which closes it in the desktop app too; the
+  // authoritative "exit"/"sessions" frames then drop the tab. Optimistically
+  // mark it dead so the UI reacts immediately (a later sessions frame corrects
+  // it if the close didn't take).
+  const closeTerminal = useCallback(
+    (id: string) => {
+      send({ t: "close", id });
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, alive: false } : s)));
+    },
+    [send],
+  );
+
   return {
     authed,
     totpRequired,
@@ -582,6 +595,7 @@ export function useRemote() {
     sendInput,
     sendToActive,
     newTerminal,
+    closeTerminal,
     ctrlSticky,
     setCtrlSticky,
     user,

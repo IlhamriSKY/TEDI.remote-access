@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import { IconTerminal, IconAdd } from "@/lib/icons";
+import { IconTerminal, IconAdd, IconClose } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import type { Remote } from "@/hooks/useRemote";
 
@@ -26,45 +26,65 @@ export function TabBar({ remote }: { remote: Remote }) {
         const running = !!remote.busy[s.id];
         const accent = ssh ? "text-[#38bdf8]" : "text-terminal";
         return (
-          <button
+          // Wrapper holds the select button + a sibling close button (a button
+          // can't nest inside a button). The close (x) shows on hover on desktop
+          // and is always visible on touch (max-md).
+          <div
             key={s.id}
-            role="tab"
-            aria-selected={active}
-            title={s.cwd || s.title || (ssh ? "ssh" : "terminal")}
-            onClick={() => setActiveId(s.id)}
             className={cn(
-              "group relative flex w-40 shrink-0 items-center gap-2 border-r border-border pl-3.5 pr-2.5 text-xs whitespace-nowrap transition-colors",
-              active
-                ? "bg-background text-foreground"
-                : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground",
+              "group relative flex w-40 shrink-0 items-stretch border-r border-border",
+              active ? "bg-background" : "bg-card hover:bg-muted",
             )}
           >
             {active && (
               <span
                 className={cn(
-                  "pointer-events-none absolute top-1/2 left-1 h-4 w-[3px] -translate-y-1/2",
+                  "pointer-events-none absolute top-1/2 left-1 z-10 h-4 w-[3px] -translate-y-1/2",
                   ssh ? "bg-[#38bdf8]" : "bg-terminal",
                 )}
                 aria-hidden
               />
             )}
-            <HugeiconsIcon
-              icon={IconTerminal}
-              size={13}
-              strokeWidth={1.8}
+            <button
+              role="tab"
+              aria-selected={active}
+              title={s.cwd || s.title || (ssh ? "ssh" : "terminal")}
+              onClick={() => setActiveId(s.id)}
               className={cn(
-                "shrink-0",
-                running ? "animate-breathe text-warning" : active ? accent : "text-muted-foreground",
+                "flex min-w-0 flex-1 items-center gap-2 pl-3.5 pr-1 text-xs whitespace-nowrap transition-colors",
+                active ? "text-foreground" : "text-muted-foreground group-hover:text-foreground",
               )}
-            />
-            <span className="min-w-0 flex-1 truncate text-left">{s.title || (ssh ? "ssh" : "terminal")}</span>
-            {ssh && (
-              <span className="shrink-0 border border-[#38bdf8]/40 px-1 text-[9px] leading-[1.4] tracking-wide text-[#38bdf8] uppercase">
-                ssh
-              </span>
-            )}
-            {!s.alive && <span className="shrink-0 text-[10px] text-muted-foreground">exited</span>}
-          </button>
+            >
+              <HugeiconsIcon
+                icon={IconTerminal}
+                size={13}
+                strokeWidth={1.8}
+                className={cn(
+                  "shrink-0",
+                  running ? "animate-breathe text-warning" : active ? accent : "text-muted-foreground",
+                )}
+              />
+              <span className="min-w-0 flex-1 truncate text-left">{s.title || (ssh ? "ssh" : "terminal")}</span>
+              {ssh && (
+                <span className="shrink-0 border border-[#38bdf8]/40 px-1 text-[9px] leading-[1.4] tracking-wide text-[#38bdf8] uppercase">
+                  ssh
+                </span>
+              )}
+              {!s.alive && <span className="shrink-0 text-[10px] text-muted-foreground">exited</span>}
+            </button>
+            <button
+              type="button"
+              aria-label="Close terminal"
+              title="Close terminal"
+              onClick={(e) => {
+                e.stopPropagation();
+                remote.closeTerminal(s.id);
+              }}
+              className="flex w-6 shrink-0 items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 max-md:w-9 max-md:opacity-100"
+            >
+              <HugeiconsIcon icon={IconClose} size={12} strokeWidth={2} />
+            </button>
+          </div>
         );
       })}
       <button

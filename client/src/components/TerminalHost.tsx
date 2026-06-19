@@ -51,10 +51,12 @@ export function TerminalHost({ remote }: { remote: Remote }) {
             if (el) attachTerminal(s.id, el, s);
           }}
           className={cn(
-            "absolute inset-0",
+            // inset-x-3 gives a tidy left/right gutter; measuring the inset pane
+            // (not a padded one) keeps the fit-mode scale math correct.
+            "absolute inset-y-0 inset-x-3",
             // Fit mode centers the CSS-scaled terminal and clips the overflow;
             // otherwise render 1:1 and let the pane scroll.
-            fit ? "flex items-center justify-center overflow-hidden" : "overflow-auto p-1.5",
+            fit ? "flex items-center justify-center overflow-hidden" : "overflow-auto",
             s.id === activeId ? "visible z-10" : "invisible pointer-events-none",
           )}
         />

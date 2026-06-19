@@ -308,6 +308,22 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   const p = url.pathname;
 
+  // The webview SSH bridge POSTs /api/agent-ticket cross-origin (from the TEDI
+  // app's own origin) with an Authorization header, which makes the browser send
+  // a CORS preflight first. Allow it for THIS bearer-gated endpoint ONLY -- not
+  // /client, /api/login, or static -- so the bridge can fetch a ticket. Without
+  // this the preflight 405s and the SSH source can never connect.
+  if (p === "/api/agent-ticket" && req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": req.headers.origin || "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Max-Age": "600",
+      Vary: "Origin",
+    });
+    return res.end();
+  }
+
   if (p === "/api/me") {
     const sess = verifySession(getCookie(req, COOKIE_NAME));
     if (!sess) return json(res, 401, { ok: false });
@@ -388,6 +404,10 @@ const server = http.createServer(async (req, res) => {
   // Issue a one-time WS ticket for a header-less source (the SSH bridge), gated
   // by the agent bearer token (which fetch CAN send).
   if (p === "/api/agent-ticket") {
+    // CORS: the bridge fetches this from the webview's origin and must be able to
+    // READ the ticket body, so echo the origin on the actual response too.
+    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.setHeader("Vary", "Origin");
     if (req.method !== "POST") return json(res, 405, { ok: false });
     const auth = req.headers["authorization"] || "";
     if (!safeEqStr(auth, `Bearer ${AGENT_TOKEN}`)) return json(res, 401, { ok: false });
@@ -449,6 +469,9 @@ wssAgent.on("connection", (ws) => {
   agents.add(ws);
   sessionsBySource.set(ws, []);
   ws.isAlive = true;
+  // A source set change must always re-publish: clear the dedup so the next
+  // sessions frame fans out even if the merged string transiently matches.
+  lastSessionsStr = null;
   log(`agent source connected (${agents.size} total)`);
   broadcastClients(JSON.stringify({ t: "host", status: "online", name: agentName }));
 
@@ -484,6 +507,7 @@ wssAgent.on("connection", (ws) => {
     agents.delete(ws);
     sessionsBySource.delete(ws);
     log(`agent source disconnected (${agents.size} total)`);
+    lastSessionsStr = null; // a source left: force the reduced list to re-publish
     broadcastSessions();
     if (agents.size === 0) broadcastClients(JSON.stringify({ t: "host", status: "offline" }));
   });

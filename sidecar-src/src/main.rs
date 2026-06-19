@@ -250,6 +250,24 @@ async fn handle_browser_frame(
                 }
             });
         }
+        "close" => {
+            // Close a tab from the browser: permanently kill the daemon PTY for
+            // a session we own. The daemon pushes Exit to every subscriber (incl.
+            // the desktop app), so the tab closes everywhere and the next list()
+            // drops it. SSH ("ssh:") ids aren't uuids -> parse_uuid fails -> the
+            // JS SSH bridge handles those via ssh_close.
+            if let Some(id) = v.get("id").and_then(parse_uuid) {
+                let owned = sessions.lock().unwrap().contains_key(&id);
+                if owned {
+                    let daemon = daemon.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = daemon.close(id).await {
+                            eprintln!("[agent] close {id} failed: {e}");
+                        }
+                    });
+                }
+            }
+        }
         "ping" => send_relay(relay_tx, Message::text(json!({ "t": "pong" }).to_string())),
         "hello" | "client_join" => {
             // A browser (re)joined: replay current state.

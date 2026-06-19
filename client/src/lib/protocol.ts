@@ -19,6 +19,12 @@ export type ServerFrame =
   | { t: "exit"; id: string; code: number }
   | { t: "pong" };
 
+// Frames the browser SENDS to the relay (forwarded to the host agent + SSH
+// bridge), built inline via `send` in useRemote:
+//   { t:"hello" } | { t:"ping" } | { t:"input"; id; b64 }
+//   | { t:"open"; cols; rows } | { t:"close"; id }
+// ("resize" is no longer sent: the browser scales to fit client-side.)
+
 // xterm themes mirroring TEDI's dark + light ANSI palettes (globals.css).
 export const TERMINAL_THEME_DARK = {
   background: "#1e1e1e",

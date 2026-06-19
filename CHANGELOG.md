@@ -2,6 +2,22 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.7.5] - 2026-06-19
+
+- **SSH tabs show in the browser again.** The webview SSH bridge fetches its relay
+  ticket cross-origin, which needs a CORS preflight the relay never answered, so
+  the SSH source could not connect. The relay now allows that preflight on the
+  ticket endpoint only, so your open SSH tabs mirror to the browser.
+- **New terminals opened in the desktop app now appear in the browser.** The relay
+  could skip re-publishing the session list when a source connected or dropped; it
+  now always re-publishes on a source change, so a terminal you open in TEDI shows
+  up in the web within a couple of seconds.
+- **Close terminals from the browser.** Each tab now has a close (x) button that
+  ends the session (local or SSH); it closes in the desktop app too. (Closing a
+  tab in the app already removed it from the web.)
+- **Tidier layout.** Added a left and right gutter so the terminal and header are
+  not jammed against the window edges.
+
 ## [0.7.4] - 2026-06-19
 
 - **"Fit to window" no longer disturbs your desktop terminal.** Before, fitting

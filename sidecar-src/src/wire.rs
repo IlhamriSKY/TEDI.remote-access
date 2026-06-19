@@ -35,6 +35,9 @@ pub enum ClientMsg {
     Write { req_id: u64, session_id: Uuid, data_b64: String },
     Resize { req_id: u64, session_id: Uuid, cols: u16, rows: u16 },
     List { req_id: u64 },
+    /// Permanently kill a session's PTY (mirrors TEDI core `ClientMsg::Close`);
+    /// the daemon removes it and pushes `Exit` to every subscriber.
+    Close { req_id: u64, session_id: Uuid },
 }
 
 #[derive(Debug, Clone, Deserialize)]

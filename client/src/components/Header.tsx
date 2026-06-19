@@ -25,7 +25,7 @@ export function Header({ remote }: { remote: Remote }) {
 
   return (
     <>
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-sidebar px-2">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-sidebar px-3">
         <StatusDot online={online} connecting={connecting} />
         <span className="truncate text-xs font-medium text-foreground">{remote.hostName || "TEDI Remote"}</span>
         <span className="hidden truncate text-[11px] text-muted-foreground sm:inline">
