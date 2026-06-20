@@ -1,6 +1,6 @@
 {
   "name": "tedi-remote-access",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "private": true,
   "type": "module",
   "description": "Build tooling for the TEDI Remote Access extension. The shipped artifact is the bundled extension.js (built in CI into the release .zip, not committed); source lives in src/. The browser client and relay live in client/ and server/.",

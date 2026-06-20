@@ -467,18 +467,9 @@ function handleSshRelayFrame(ctx, m) {
       sshSend({ t: "exit", id: m.id, code: 0 });
     }
   } else if (m.t === "resize" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
-    // Browser "fit host to my screen": resize the SSH PTY so its output matches
-    // the browser width. This reflows the same SSH terminal in the desktop app --
-    // the intended trade-off for a full-size remote view (mirrors the native
-    // agent's daemon resize).
-    const id = parseInt(m.id.slice(4), 10);
-    const cols = m.cols | 0;
-    const rows = m.rows | 0;
-    // Same ownership gate as input/close, plus bound the dimensions so a bogus
-    // frame can't drive an absurd reflow of the shared desktop terminal.
-    if (!Number.isNaN(id) && sshAttached.has(id) && cols > 0 && cols <= 1000 && rows > 0 && rows <= 1000) {
-      ctx.invoke("ssh_resize", { id, cols, rows }).catch(() => {});
-    }
+    // Intentionally ignored: the browser is a pure mirror and must never reflow
+    // the shared SSH terminal (the same PTY is shown in the desktop app). The web
+    // client scales its own rendering with CSS instead.
   } else if (m.t === "client_join") {
     // Re-publish the session list (no re-attach: that would add a duplicate
     // sink). SSH late-joiners get live output, not replayed scrollback.

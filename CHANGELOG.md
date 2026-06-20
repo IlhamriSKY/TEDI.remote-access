@@ -2,6 +2,27 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.6] - 2026-06-20
+
+Terminal sizing is now fully isolated between the web and the desktop app, in
+both directions.
+
+- **Resizing the web view never reflows your desktop terminal.** The browser is
+  now a pure mirror: it always renders each terminal at the host PTY's real
+  cols/rows and only scales its OWN view with CSS, so it never resizes the shared
+  PTY. The old default ("fit host to my screen") used to resize the host PTY,
+  which reflowed the matching terminal in the desktop app; that no longer happens.
+- **Belt-and-suspenders on the host side.** The native agent and the SSH bridge
+  now ignore every browser-initiated resize, so even a stale/cached old web client
+  can't reflow your desktop terminal.
+- **Resizing the desktop app no longer disturbs the web.** When you resize a pane
+  on the PC, the agent picks up the new size and the web mirrors it and re-scales
+  to fill, so the browser view stays full and stable (the content just reflows to
+  the host's new size, as a mirror should).
+- The "Fit to window" toggle now means: ON (default) = CSS-scale the mirror to
+  fill the browser; OFF = show it at the host's natural 1:1 size (the pane
+  scrolls if it's bigger than the view). Neither setting ever touches the host.
+
 ## [0.8.5] - 2026-06-20
 
 Security-hardening pass (pre-production audit; 3 adversarial reviews of the

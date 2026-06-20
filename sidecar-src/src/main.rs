@@ -292,28 +292,11 @@ async fn handle_browser_frame(
             }
         }
         "resize" => {
-            // "Fit host to my screen" in the browser: resize the owned daemon PTY
-            // so its output is produced at the browser's width (the browser can be
-            // far larger than a small desktop split pane). This DOES reflow the
-            // shared terminal in the desktop app -- that is the deliberate
-            // trade-off for a full-size remote view; the browser only sends resize
-            // when the user keeps "fit host" on. Spawned so a slow daemon resize
-            // never stalls the read loop. (SSH ids -> the bridge's ssh_resize.)
-            if let (Some(id), Some(cols), Some(rows)) = (
-                v.get("id").and_then(parse_uuid),
-                v.get("cols").and_then(|x| x.as_u64()).and_then(clamp_dim),
-                v.get("rows").and_then(|x| x.as_u64()).and_then(clamp_dim),
-            ) {
-                let owned = sessions.lock().unwrap().contains_key(&id);
-                if owned {
-                    let daemon = daemon.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = daemon.resize(id, cols, rows).await {
-                            eprintln!("[agent] resize {id} failed: {e}");
-                        }
-                    });
-                }
-            }
+            // Intentionally ignored. The browser is a PURE MIRROR and must never
+            // reflow the shared host PTY -- doing so would resize the desktop
+            // user's live terminal. The web client scales its OWN rendering with
+            // CSS instead, so the agent drops every browser-initiated resize.
+            // Kept as an explicit no-op so a stale/old client's resize is harmless.
         }
         "open" => {
             // "New tab from the browser": ask the daemon to spawn a fresh PTY.

@@ -28,10 +28,12 @@ export type ServerFrame =
 // bridge), built inline via `send` in useRemote:
 //   { t:"hello" } | { t:"ping" } | { t:"input"; id; b64 }
 //   | { t:"open"; cols; rows } | { t:"close"; id }
-//   | { t:"resize"; id; cols; rows }
-// ("resize" is sent only in "fit host to my screen" mode, for the active
-// terminal, to reflow the host PTY to the browser's size; in mirror mode the
-// browser adopts the host's cols/rows and scales to fit client-side instead.)
+// The browser NEVER sends a resize: it's a pure mirror that always renders each
+// terminal at the host PTY's real cols/rows and scales its OWN view with CSS, so
+// it can never reflow the shared desktop terminal. (The host agent + SSH bridge
+// also ignore any inbound resize, so an old client can't reflow it either.)
+// `{ t:"open"; cols; rows }` only sizes a BRAND-NEW PTY at creation, which the
+// desktop app then owns; it never resizes an existing shared session.
 
 // xterm themes mirroring TEDI's dark + light ANSI palettes (globals.css).
 export const TERMINAL_THEME_DARK = {

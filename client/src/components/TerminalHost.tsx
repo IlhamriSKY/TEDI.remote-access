@@ -60,12 +60,12 @@ export function TerminalHost({ remote }: { remote: Remote }) {
           className={cn(
             // Near-full-bleed (a 6px inset for breathing room). The inset is set
             // via positioning, not padding, so clientWidth/Height measure the
-            // real available box (proposeDims / scale math need the true size).
+            // real available box (the fit-to-window scale math needs the true size).
             "absolute inset-1.5",
-            // fit ON ("fit host to my screen"): the xterm is sized to fill this
-            // box, so just clip. fit OFF (mirror): the xterm is at the host size
-            // and CSS-scaled, so center it and clip the overflow.
-            fit ? "overflow-hidden" : "flex items-center justify-center overflow-hidden",
+            // The xterm is always at the host's real size (pure mirror). fit ON
+            // ("fit to window"): CSS-scaled to fill, so center it and clip. fit
+            // OFF: shown 1:1, so let the pane scroll if it's bigger than the view.
+            fit ? "flex items-center justify-center overflow-hidden" : "overflow-auto",
             s.id === activeId ? "visible z-10" : "invisible pointer-events-none",
           )}
         />
