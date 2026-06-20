@@ -12,7 +12,7 @@ attach over HTTPS.
 
 > [!NOTE]
 > You need TEDI (see `engines.tedi` in `manifest.json` for the minimum version)
-> and a **relay you host** — a small VPS with a domain and TLS. The whole relay
+> and a **relay you host**: a small VPS with a domain and TLS. The whole relay
 > plus website is set up in a few steps below; `server/install.sh` does it all.
 
 Runs on the three operating systems TEDI supports: Windows, macOS, and Linux.
@@ -27,8 +27,8 @@ Runs on the three operating systems TEDI supports: Windows, macOS, and Linux.
 - **Open new tabs from the browser.** The tab strip's **+** opens a **New
   terminal** on the host, or a **New SSH** connection.
 - **Safe SSH from the browser.** You can only open SSH hosts you have already
-  saved and verified on the desktop (host-key pinned) — you cannot add a new host
-  from the web. To connect you re-enter your **login** password, never the SSH
+  saved and verified on the desktop (host-key pinned), and you cannot add a new
+  host from the web. To connect you re-enter your **login** password, never the SSH
   password: that stays in the host's keychain and never touches the browser.
 - **NAT-friendly, no inbound port.** The agent and the browser both dial **out**
   to your relay, so nothing is exposed on your home network. Close TEDI and the
@@ -154,10 +154,10 @@ a fresh login-password re-auth and a browser cannot trigger it with a raw WS
 frame.
 
 **Known considerations.** The agent token is on the agent's command line (another
-process running as _you_ could read it — rotate it on a shared host); TEDI's
+process running as _you_ could read it, so rotate it on a shared host); TEDI's
 Windows PTY-daemon pipe is not ACL-restricted (a concern only on multi-user / RDP
 hosts; the Unix socket is `0600`); and extensions run unsandboxed, so install-time
-permission consent is the real trust boundary — install only extensions you trust.
+permission consent is the real trust boundary, so install only extensions you trust.
 
 ## Development
 
