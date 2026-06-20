@@ -1,7 +1,7 @@
 {
   "id": "tedi.remote-access",
   "name": "Remote Access",
-  "version": "0.8.9",
+  "version": "0.8.10",
   "description": "Mirror your open TEDI terminals to a browser anywhere, via your self-hosted relay.",
   "author": "IlhamriSKY",
   "homepage": "https://github.com/IlhamriSKY/TEDI",
@@ -11,6 +11,7 @@
     "invoke:shell_bg_spawn_direct",
     "invoke:shell_bg_logs",
     "invoke:shell_bg_kill",
+    "invoke:shell_bg_list",
     "invoke:ssh_list_sessions",
     "invoke:ssh_attach",
     "invoke:ssh_write",

@@ -113,6 +113,40 @@ async function getToken(ctx) {
   return v || "";
 }
 
+// Reap any orphaned agent left running from a PREVIOUS extension load. On a
+// webview reload the JS state (including our `handle`) is reset, but the native
+// agent the core spawned keeps running: its Windows Job object only closes when
+// TEDI itself exits, not on a reload. A leftover agent stays attached to the
+// relay and mirrors every session a SECOND time, so a key typed in the browser
+// is written to the PTY twice and the shell echoes it doubled ("c" -> "cc", and
+// "ccc" after a third). The core keeps a background-process registry across
+// reloads, so list it and kill anything that is our agent before spawning a
+// fresh one, guaranteeing exactly one writer per session.
+async function reapOrphanAgents(ctx) {
+  let procs;
+  try {
+    procs = await ctx.invoke("shell_bg_list");
+  } catch {
+    return; // shell_bg_list not granted on this build -> best-effort
+  }
+  if (!Array.isArray(procs)) return;
+  for (const p of procs) {
+    if (
+      p &&
+      !p.exited &&
+      typeof p.command === "string" &&
+      p.command.includes("tedi-remote-agent")
+    ) {
+      await ctx.invoke("shell_bg_kill", { handle: p.handle }).catch(() => {});
+      try {
+        ctx.logger.info("reaped orphaned remote-access agent (handle " + p.handle + ")");
+      } catch {
+        /* logger optional */
+      }
+    }
+  }
+}
+
 async function readReady(ctx, h) {
   const deadline = Date.now() + 10000;
   let offset = 0;
@@ -170,6 +204,8 @@ async function startAgent() {
       agent_token: token,
       agent_name: agentName,
     });
+    // Kill any agent left over from a previous load so we never double-write.
+    await reapOrphanAgents(ctx);
     handle = await ctx.invoke("shell_bg_spawn_direct", { program, args: [config] });
     await readReady(ctx, handle);
     agentOnline = true;

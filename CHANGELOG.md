@@ -2,6 +2,17 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.10] - 2026-06-20
+
+- **Fixed doubled typing from the browser (a key showing as "cc" or "ccc").** On
+  a reload the extension lost track of the agent it had spawned, but the agent
+  kept running (its OS job only ends when TEDI exits, not on a reload). A
+  leftover agent stayed attached to the relay and mirrored every session a second
+  time, so each keystroke was written to the terminal twice (three times after
+  another reload). The extension now reaps any leftover agent before starting a
+  new one, so exactly one is ever connected. Reinstall to apply; fully restarting
+  TEDI also clears any current leftovers.
+
 ## [0.8.9] - 2026-06-20
 
 - **"Fit host to my screen" now actually fits.** It resizes the host terminal to
