@@ -11,6 +11,7 @@ import {
   TERMINAL_THEME_DARK,
   TERMINAL_THEME_LIGHT,
   type FontFamilyId,
+  type SavedSshConn,
   type ServerFrame,
   type SessionMeta,
   type ThemeName,
@@ -93,6 +94,9 @@ export function useRemote() {
   // by the host via the `tabmeta` frame. Kept separate from `sessions` so it
   // survives session-list updates; the tab strip reads it by session id.
   const [ordinals, setOrdinals] = useState<Record<string, number>>({});
+  // Saved SSH hosts the user may open from the web (secret-free, pinned-only),
+  // pushed by the host via the `ssh-conns` frame.
+  const [sshConns, setSshConns] = useState<SavedSshConn[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(() => clampFont(Number(localStorage.getItem(FONT_KEY))));
   const [fontFamily, setFontFamily] = useState<FontFamilyId>(getInitialFontFamily);
@@ -313,26 +317,29 @@ export function useRemote() {
   }, []);
 
   // --- frame handling -----------------------------------------------------
-  const writeScrollback = useCallback((id: string, b64: string, cols: number, rows: number) => {
-    const bytes = b64 ? b64ToBytes(b64) : new Uint8Array(0);
-    const entry = terms.current.get(id);
-    if (entry) {
-      // Always adopt the host PTY's real size - the browser mirrors the host and
-      // never drives its own size, so the desktop is never reflowed.
-      if (entry.term.cols !== cols || entry.term.rows !== rows) {
-        try {
-          entry.term.resize(cols, rows);
-        } catch {
-          /* ignore */
+  const writeScrollback = useCallback(
+    (id: string, b64: string, cols: number, rows: number) => {
+      const bytes = b64 ? b64ToBytes(b64) : new Uint8Array(0);
+      const entry = terms.current.get(id);
+      if (entry) {
+        // Always adopt the host PTY's real size - the browser mirrors the host and
+        // never drives its own size, so the desktop is never reflowed.
+        if (entry.term.cols !== cols || entry.term.rows !== rows) {
+          try {
+            entry.term.resize(cols, rows);
+          } catch {
+            /* ignore */
+          }
         }
+        entry.term.reset();
+        if (bytes.length) entry.term.write(bytes);
+        fitTerminal(id);
+      } else {
+        pending.current.set(id, bytes.length ? [bytes] : []);
       }
-      entry.term.reset();
-      if (bytes.length) entry.term.write(bytes);
-      fitTerminal(id);
-    } else {
-      pending.current.set(id, bytes.length ? [bytes] : []);
-    }
-  }, [fitTerminal]);
+    },
+    [fitTerminal],
+  );
 
   const handleFrame = useCallback(
     (f: ServerFrame) => {
@@ -360,7 +367,8 @@ export function useRemote() {
           for (const id of [...terms.current.keys()]) if (!live.has(id)) disposeTerminal(id);
           setSessions((prev) => reconcileOrder(prev, items));
           // If the user just hit "+", focus the session that wasn't there before.
-          const fresh = pendingNewIds.current && items.find((i) => !pendingNewIds.current!.has(i.id));
+          const fresh =
+            pendingNewIds.current && items.find((i) => !pendingNewIds.current!.has(i.id));
           if (fresh) {
             pendingNewIds.current = null;
             if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
@@ -374,8 +382,13 @@ export function useRemote() {
           writeScrollback(f.id, f.scrollback, f.cols, f.rows);
           setSessions((prev) =>
             prev.some((s) => s.id === f.id)
-              ? prev.map((s) => (s.id === f.id ? { ...s, cols: f.cols, rows: f.rows, alive: f.alive } : s))
-              : [...prev, { id: f.id, cols: f.cols, rows: f.rows, alive: f.alive, title: "terminal" }],
+              ? prev.map((s) =>
+                  s.id === f.id ? { ...s, cols: f.cols, rows: f.rows, alive: f.alive } : s,
+                )
+              : [
+                  ...prev,
+                  { id: f.id, cols: f.cols, rows: f.rows, alive: f.alive, title: "terminal" },
+                ],
           );
           setActiveId((cur) => cur ?? f.id);
           break;
@@ -394,7 +407,9 @@ export function useRemote() {
         case "exit": {
           const entry = terms.current.get(f.id);
           if (entry) {
-            entry.term.write(new TextEncoder().encode(`\r\n\x1b[90m[process exited ${f.code}]\x1b[0m\r\n`));
+            entry.term.write(
+              new TextEncoder().encode(`\r\n\x1b[90m[process exited ${f.code}]\x1b[0m\r\n`),
+            );
           }
           setSessions((prev) => prev.map((s) => (s.id === f.id ? { ...s, alive: false } : s)));
           break;
@@ -405,6 +420,9 @@ export function useRemote() {
           setOrdinals(next);
           break;
         }
+        case "ssh-conns":
+          setSshConns(Array.isArray(f.items) ? f.items : []);
+          break;
         case "pong":
           break;
       }
@@ -475,7 +493,10 @@ export function useRemote() {
           return { ok: true };
         }
         const j = (await r.json().catch(() => ({}))) as { error?: string };
-        return { ok: false, error: j.error || (r.status === 429 ? "Too many attempts" : "Sign in failed") };
+        return {
+          ok: false,
+          error: j.error || (r.status === 429 ? "Too many attempts" : "Sign in failed"),
+        };
       } catch {
         return { ok: false, error: "Network error" };
       }
@@ -503,8 +524,57 @@ export function useRemote() {
         });
         if (r.ok) return { ok: true };
         const j = (await r.json().catch(() => ({}))) as { error?: string };
-        return { ok: false, error: j.error || (r.status === 429 ? "Too many attempts" : "Could not change password") };
+        return {
+          ok: false,
+          error: j.error || (r.status === 429 ? "Too many attempts" : "Could not change password"),
+        };
       } catch {
+        return { ok: false, error: "Network error" };
+      }
+    },
+    [],
+  );
+
+  // Open a SAVED SSH connection. The user re-authenticates with their LOGIN
+  // password (NOT the SSH password) over POST /api/open-ssh; the relay verifies
+  // it and tells the host to open the connection by id (keychain creds stay on
+  // the host). The new SSH tab then streams in via the next sessions frame.
+  const openSshConnection = useCallback(
+    async (
+      connectionId: string,
+      pass: string,
+      otp?: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      // Snapshot existing ids so the new SSH tab auto-focuses when it appears.
+      pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
+      if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
+      pendingNewTimer.current = window.setTimeout(() => {
+        pendingNewIds.current = null;
+      }, 8000);
+      try {
+        const r = await fetch("/api/open-ssh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ connectionId, pass, otp }),
+        });
+        if (r.ok) return { ok: true };
+        pendingNewIds.current = null;
+        const j = (await r.json().catch(() => ({}))) as { error?: string };
+        return {
+          ok: false,
+          error:
+            j.error ||
+            (r.status === 429
+              ? "Too many attempts"
+              : r.status === 401
+                ? "Wrong password"
+                : r.status === 503
+                  ? "Host is offline"
+                  : "Could not open SSH"),
+        };
+      } catch {
+        pendingNewIds.current = null;
         return { ok: false, error: "Network error" };
       }
     },
@@ -720,6 +790,8 @@ export function useRemote() {
     login,
     logout,
     changePassword,
+    sshConns,
+    openSshConnection,
   };
 }
 

@@ -122,7 +122,9 @@ async function readReady(ctx, h) {
     if (resp && resp.bytes) buf += resp.bytes;
     if (resp && typeof resp.next_offset === "number") offset = resp.next_offset;
     if (resp && resp.exited) {
-      throw new Error("agent exited before READY (exit " + (resp.exit_code != null ? resp.exit_code : "?") + ")");
+      throw new Error(
+        "agent exited before READY (exit " + (resp.exit_code != null ? resp.exit_code : "?") + ")",
+      );
     }
     if (buf.includes("READY ")) return;
     await sleep(120);
@@ -142,22 +144,32 @@ async function startAgent() {
   const token = await getToken(ctx);
   if (!token) {
     setStatus("warning", "Remote Access: set the agent token in Settings");
-    ctx.ui.toast("Remote Access: set the agent token in Settings -> Extensions", { variant: "warning" });
+    ctx.ui.toast("Remote Access: set the agent token in Settings -> Extensions", {
+      variant: "warning",
+    });
     return;
   }
   const relayUrl = normalizeRelayUrl((await ctx.settings.get("relayUrl")) || DEFAULT_RELAY);
   if (!relayUrl) {
     setStatus("warning", "Remote Access: set the relay URL in Settings");
-    ctx.ui.toast("Remote Access: set your relay URL in Settings -> Extensions", { variant: "warning" });
+    ctx.ui.toast("Remote Access: set your relay URL in Settings -> Extensions", {
+      variant: "warning",
+    });
     return;
   }
-  let agentName = String((await ctx.settings.get("agentName")) || "").trim().slice(0, 64);
+  let agentName = String((await ctx.settings.get("agentName")) || "")
+    .trim()
+    .slice(0, 64);
   if (!agentName) agentName = "TEDI host";
 
   booting = true;
   setStatus("default", "Remote Access: connecting...");
   try {
-    const config = JSON.stringify({ relay_url: relayUrl, agent_token: token, agent_name: agentName });
+    const config = JSON.stringify({
+      relay_url: relayUrl,
+      agent_token: token,
+      agent_name: agentName,
+    });
     handle = await ctx.invoke("shell_bg_spawn_direct", { program, args: [config] });
     await readReady(ctx, handle);
     agentOnline = true;
@@ -243,7 +255,9 @@ function watchAgent(ctx, h) {
       handle = null;
       agentOnline = false;
       clientCount = 0;
-      ctx.logger.info("agent exited (code " + (resp.exit_code != null ? resp.exit_code : "?") + "); reconnecting");
+      ctx.logger.info(
+        "agent exited (code " + (resp.exit_code != null ? resp.exit_code : "?") + "); reconnecting",
+      );
       setStatus("warning", "Remote Access: reconnecting...");
       scheduleRestart();
     }
@@ -307,6 +321,20 @@ function sendTabMeta() {
   sshSend({ t: "tabmeta", items: tabMeta });
 }
 
+// Push the list of saved SSH connections the browser may open. SECRET-FREE
+// metadata only (id/name/host/user/pinned); the host already filters to PINNED
+// hosts (a first connect needs desktop host-key verification). No-op on an older
+// TEDI core that predates ctx.ssh.
+async function sendSshConns(ctx) {
+  if (!ctx.ssh || typeof ctx.ssh.listConnections !== "function") return;
+  try {
+    const items = await ctx.ssh.listConnections();
+    sshSend({ t: "ssh-conns", items: Array.isArray(items) ? items : [] });
+  } catch (e) {
+    ctx.logger.warn("ssh listConnections failed", e);
+  }
+}
+
 async function startSshBridge(ctx, relayUrl, token) {
   sshStop = false;
   try {
@@ -355,7 +383,8 @@ async function connectSshRelay(ctx, relayUrl, token) {
     sshReconnectTimer = setTimeout(() => connectSshRelay(ctx, relayUrl, token), 5000);
     return;
   }
-  const wsUrl = relayUrl + (relayUrl.includes("?") ? "&" : "?") + "ticket=" + encodeURIComponent(ticket);
+  const wsUrl =
+    relayUrl + (relayUrl.includes("?") ? "&" : "?") + "ticket=" + encodeURIComponent(ticket);
   let ws;
   try {
     ws = new WebSocket(wsUrl);
@@ -370,6 +399,7 @@ async function connectSshRelay(ctx, relayUrl, token) {
     sshPollTimer = setInterval(() => pollSsh(ctx), 2000);
     pollSsh(ctx);
     sendTabMeta(); // mirror the current desktop tab numbers to the browser
+    sendSshConns(ctx); // give the browser the saved SSH hosts it may open
   };
   ws.onmessage = (ev) => {
     let m;
@@ -475,6 +505,28 @@ function handleSshRelayFrame(ctx, m) {
     // sink). SSH late-joiners get live output, not replayed scrollback.
     pollSsh(ctx);
     sendTabMeta(); // give the new browser the desktop tab numbers
+    sendSshConns(ctx); // and the saved SSH hosts it may open
+  } else if (m.t === "open-ssh") {
+    // Open a SAVED SSH connection from the browser. The relay only forwards this
+    // AFTER verifying the user's LOGIN password (POST /api/open-ssh) and drops
+    // any browser-sent open-ssh, so reaching here means the action was
+    // re-authenticated. We open the connection BY ID via the host; the SSH
+    // password / key are read host-side from the keychain and never seen here.
+    const id = typeof m.connectionId === "string" ? m.connectionId : "";
+    if (id && ctx.ssh && typeof ctx.ssh.openConnection === "function") {
+      ctx.ssh
+        .openConnection(id)
+        .then((r) => {
+          if (!r || !r.ok) {
+            ctx.logger.warn("open-ssh refused", r && r.error);
+            ctx.ui.toast("Remote SSH: " + ((r && r.error) || "could not open"), {
+              variant: "error",
+            });
+          }
+          // On success the new SSH tab streams in via the next pollSsh.
+        })
+        .catch((e) => ctx.logger.warn("open-ssh error", e));
+    }
   } else if (m.t === "ping") {
     sshSend({ t: "pong" });
   }

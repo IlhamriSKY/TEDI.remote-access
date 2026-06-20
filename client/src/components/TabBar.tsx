@@ -3,7 +3,14 @@ import { HugeiconsIcon } from "@hugeicons/react";
 
 import { IconTerminal, IconSsh, IconAdd, IconClose } from "@/lib/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { NewSshModal } from "@/components/NewSshModal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { SessionMeta } from "@/lib/protocol";
 import type { Remote } from "@/hooks/useRemote";
@@ -20,6 +27,7 @@ export function TabBar({ remote }: { remote: Remote }) {
   const [pendingClose, setPendingClose] = useState<SessionMeta | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  const [sshOpen, setSshOpen] = useState(false);
   if (sessions.length === 0) return null;
 
   return (
@@ -27,7 +35,7 @@ export function TabBar({ remote }: { remote: Remote }) {
       <div
         role="tablist"
         aria-label="Terminals"
-        className="no-scrollbar flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-border bg-muted"
+        className="no-scrollbar border-border bg-muted flex h-9 shrink-0 items-stretch overflow-x-auto border-b"
       >
         {sessions.map((s, idx) => {
           const active = s.id === activeId;
@@ -59,10 +67,11 @@ export function TabBar({ remote }: { remote: Remote }) {
                 setOverId(null);
               }}
               className={cn(
-                "group relative flex w-40 shrink-0 items-stretch border-r border-border transition-colors",
+                "group border-border relative flex w-40 shrink-0 items-stretch border-r transition-colors",
                 active ? "bg-background" : "hover:bg-background/60",
                 dragId === s.id && "opacity-40",
-                overId === s.id && "before:absolute before:inset-y-0 before:left-0 before:z-20 before:w-0.5 before:bg-primary",
+                overId === s.id &&
+                  "before:bg-primary before:absolute before:inset-y-0 before:left-0 before:z-20 before:w-0.5",
               )}
             >
               {active && (
@@ -81,7 +90,9 @@ export function TabBar({ remote }: { remote: Remote }) {
                 onClick={() => setActiveId(s.id)}
                 className={cn(
                   "flex min-w-0 flex-1 items-center gap-1.5 pr-1 pl-2.5 text-xs whitespace-nowrap transition-colors",
-                  active ? "font-medium text-foreground" : "text-muted-foreground group-hover:text-foreground",
+                  active
+                    ? "text-foreground font-medium"
+                    : "text-muted-foreground group-hover:text-foreground",
                 )}
               >
                 {/* Order: icon -> number -> title, matching the desktop tab chip.
@@ -92,14 +103,25 @@ export function TabBar({ remote }: { remote: Remote }) {
                   strokeWidth={1.8}
                   className={cn(
                     "shrink-0",
-                    running ? "animate-breathe text-warning" : active ? accent : "text-muted-foreground",
+                    running
+                      ? "animate-breathe text-warning"
+                      : active
+                        ? accent
+                        : "text-muted-foreground",
                   )}
                 />
-                <span className={cn("shrink-0 text-[10px] tabular-nums", active ? accent : "text-muted-foreground/70")}>
+                <span
+                  className={cn(
+                    "shrink-0 text-[10px] tabular-nums",
+                    active ? accent : "text-muted-foreground/70",
+                  )}
+                >
                   {remote.ordinals[s.id] ?? idx + 1}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-left">{tabLabel(s)}</span>
-                {!s.alive && <span className="shrink-0 text-[10px] text-muted-foreground">exited</span>}
+                {!s.alive && (
+                  <span className="text-muted-foreground shrink-0 text-[10px]">exited</span>
+                )}
               </button>
               <button
                 type="button"
@@ -109,27 +131,42 @@ export function TabBar({ remote }: { remote: Remote }) {
                   e.stopPropagation();
                   setPendingClose(s);
                 }}
-                className="flex w-6 shrink-0 items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 max-md:w-9 max-md:opacity-100"
+                className="text-muted-foreground hover:text-foreground flex w-6 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:w-9 max-md:opacity-100"
               >
                 <HugeiconsIcon icon={IconClose} size={12} strokeWidth={2} />
               </button>
             </div>
           );
         })}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="New terminal"
-              onClick={() => remote.newTerminal()}
-              className="flex w-9 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
-            >
-              <HugeiconsIcon icon={IconAdd} size={15} strokeWidth={1.8} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">New terminal</TooltipContent>
-        </Tooltip>
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="New tab"
+                  className="text-muted-foreground hover:bg-background/60 hover:text-foreground flex w-9 shrink-0 items-center justify-center transition-colors"
+                >
+                  <HugeiconsIcon icon={IconAdd} size={15} strokeWidth={1.8} />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">New tab</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start" className="min-w-44">
+            <DropdownMenuItem onSelect={() => remote.newTerminal()}>
+              <HugeiconsIcon icon={IconTerminal} size={14} strokeWidth={1.8} />
+              New terminal
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setSshOpen(true)}>
+              <HugeiconsIcon icon={IconSsh} size={14} strokeWidth={1.8} />
+              New SSH…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+
+      {sshOpen && <NewSshModal remote={remote} onClose={() => setSshOpen(false)} />}
 
       {pendingClose && (
         <ConfirmModal
@@ -138,8 +175,8 @@ export function TabBar({ remote }: { remote: Remote }) {
           confirmLabel="Close terminal"
           message={
             <>
-              Close <span className="font-medium text-foreground">{tabLabel(pendingClose)}</span>? This ends the
-              process and closes the tab in TEDI on your computer too.
+              Close <span className="text-foreground font-medium">{tabLabel(pendingClose)}</span>?
+              This ends the process and closes the tab in TEDI on your computer too.
             </>
           }
           onConfirm={() => remote.closeTerminal(pendingClose.id)}

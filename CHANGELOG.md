@@ -2,6 +2,25 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.7] - 2026-06-20
+
+- **Open an SSH connection from the browser "+".** The "+" in the tab strip is now
+  a menu: "New terminal" or "New SSH…". New SSH lets you pick one of your SAVED
+  SSH hosts and connect. Requires TEDI 0.3.53.
+- **Security by design - the SSH password never enters the browser.** You can only
+  open hosts already SAVED and verified (host-key pinned) on the desktop app; you
+  cannot add a new host/IP from the web. To connect you re-enter your LOGIN
+  (user) password - NOT the SSH password. The relay verifies that login password
+  server-side, then tells the host to open the connection; the host reads the SSH
+  credentials from its own OS keychain. The SSH password/key are never typed in,
+  transmitted, or even seen by the extension. A browser also cannot open SSH by
+  injecting a raw WebSocket frame - the open action only happens through the
+  password-gated HTTPS request.
+- The new SSH tab appears in both the desktop app and the web, and mirrors like
+  any other SSH tab.
+- Also includes the earlier modal-border consistency fix (single 1px border on
+  the modal, dropdown, and tooltip).
+
 ## [0.8.6] - 2026-06-20
 
 Terminal sizing is now fully isolated between the web and the desktop app, in

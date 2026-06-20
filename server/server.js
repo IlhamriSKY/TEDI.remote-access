@@ -234,7 +234,9 @@ function setSessionCookie(res, value) {
   ]);
 }
 function clearSessionCookie(res) {
-  res.setHeader("Set-Cookie", [`${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Strict; Secure; Max-Age=0`]);
+  res.setHeader("Set-Cookie", [
+    `${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Strict; Secure; Max-Age=0`,
+  ]);
 }
 
 const MIME = {
@@ -415,6 +417,55 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true });
   }
 
+  // Open a SAVED SSH connection on the host, gated by a fresh LOGIN-password
+  // re-auth (+ TOTP when enabled). The browser sends only the connection id and
+  // its login password here - never the SSH credentials - and cannot open SSH
+  // via the WS broadcast (those open-ssh frames are dropped). We verify the user
+  // on this HTTP request, then emit the open-ssh frame to the host agent
+  // ourselves; the host opens the saved connection using its keychain creds.
+  if (p === "/api/open-ssh") {
+    if (req.method !== "POST") return json(res, 405, { ok: false });
+    const sess = verifySession(getCookie(req, COOKIE_NAME));
+    if (!sess) return json(res, 401, { ok: false, error: "not signed in" });
+    const ip = clientIp(req);
+    if (rateBlocked(ip)) return json(res, 429, { ok: false, error: "too many attempts" });
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      /* invalid json -> fails the checks below */
+    }
+    const connectionId = String(body.connectionId || "");
+    if (!connectionId) return json(res, 400, { ok: false, error: "missing connection" });
+    // Evaluate both factors before combining (timing-leak defense, like login).
+    const okPass = verifyPass(String(body.pass || ""));
+    const totpC = verifyTotp(body.otp);
+    const okOtp = totpC >= 0;
+    if (!okPass || !okOtp) {
+      noteFail(ip);
+      return json(res, 401, { ok: false, error: "invalid credentials" });
+    }
+    if (TOTP_SECRET && totpC >= 0) consumedTotp.set(totpC, Date.now() + TOTP_CONSUME_TTL_MS);
+    loginFails.delete(ip);
+    // Forward to the host agent(s). The native PTY agent ignores it; the SSH
+    // bridge opens the saved connection by id (keychain creds read host-side).
+    const frame = JSON.stringify({ t: "open-ssh", connectionId });
+    let delivered = 0;
+    for (const a of agents) {
+      if (a.readyState === 1) {
+        try {
+          a.send(frame);
+          delivered++;
+        } catch {
+          /* ignore a dead socket */
+        }
+      }
+    }
+    if (delivered === 0) return json(res, 503, { ok: false, error: "host is offline" });
+    log(`open-ssh requested by '${sess.u}'`);
+    return json(res, 200, { ok: true });
+  }
+
   // Issue a one-time WS ticket for a header-less source (the SSH bridge), gated
   // by the agent bearer token (which fetch CAN send).
   if (p === "/api/agent-ticket") {
@@ -435,7 +486,8 @@ const server = http.createServer(async (req, res) => {
 
   if (p === "/healthz") return res.writeHead(200).end("ok");
 
-  if (req.method !== "GET" && req.method !== "HEAD") return res.writeHead(405).end("method not allowed");
+  if (req.method !== "GET" && req.method !== "HEAD")
+    return res.writeHead(405).end("method not allowed");
   serveStatic(res, p);
 });
 
@@ -585,6 +637,18 @@ wssClient.on("connection", (ws) => {
   // Browser input goes to every source; each ignores ids it doesn't own.
   ws.on("message", (data) => {
     const s = data.toString();
+    // Browsers may NOT open SSH over the WS broadcast path. `open-ssh` opens a
+    // real SSH session and is only permitted via POST /api/open-ssh, which
+    // re-verifies the login password. Drop any browser-sent open-ssh so a client
+    // can't inject it here and bypass that gate. (Cheap substring pre-check so
+    // the common frames aren't parsed.)
+    if (s.length < 4096 && s.includes('"open-ssh"')) {
+      try {
+        if (JSON.parse(s).t === "open-ssh") return;
+      } catch {
+        /* not JSON; fall through to normal forwarding */
+      }
+    }
     for (const a of agents) {
       if (a.readyState === 1) {
         try {
@@ -694,7 +758,9 @@ server.listen(PORT, HOST, () => {
         "Login rate-limiting will bucket ALL clients as 127.0.0.1. Set TRUST_PROXY=1.",
     );
   }
-  log(`WS Origin check: ${ALLOWED_ORIGIN ? `enforced (${ALLOWED_ORIGIN})` : "OFF (set ALLOWED_ORIGIN to enable)"}`);
+  log(
+    `WS Origin check: ${ALLOWED_ORIGIN ? `enforced (${ALLOWED_ORIGIN})` : "OFF (set ALLOWED_ORIGIN to enable)"}`,
+  );
 });
 
 // ----------------------------- graceful shutdown ------------------------------

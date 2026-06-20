@@ -13,6 +13,19 @@ export type SessionMeta = {
   createdAt?: number;
 };
 
+/** A saved SSH host the browser may OPEN (never create). Secret-free metadata;
+ *  the SSH password/key stay in the host's keychain. Only PINNED hosts (already
+ *  verified on the desktop) are sent, since a first connect needs human host-key
+ *  verification a web user can't do. */
+export type SavedSshConn = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  pinned: boolean;
+};
+
 export type ServerFrame =
   | { t: "host"; status: "online" | "offline"; name?: string }
   | { t: "sessions"; items: SessionMeta[] }
@@ -22,7 +35,9 @@ export type ServerFrame =
   | { t: "pong" }
   // Sent by the host extension (via the relay): the desktop app's tab numbers
   // keyed by daemon ptyId, so the browser labels tabs the same as the app.
-  | { t: "tabmeta"; items: { ptyId: string; ordinal: number }[] };
+  | { t: "tabmeta"; items: { ptyId: string; ordinal: number }[] }
+  // Saved SSH hosts the browser may open (secret-free, pinned-only).
+  | { t: "ssh-conns"; items: SavedSshConn[] };
 
 // Frames the browser SENDS to the relay (forwarded to the host agent + SSH
 // bridge), built inline via `send` in useRemote:
@@ -34,6 +49,11 @@ export type ServerFrame =
 // also ignore any inbound resize, so an old client can't reflow it either.)
 // `{ t:"open"; cols; rows }` only sizes a BRAND-NEW PTY at creation, which the
 // desktop app then owns; it never resizes an existing shared session.
+//
+// Opening a SAVED SSH connection is deliberately NOT a WS frame: the browser
+// POSTs /api/open-ssh with the user's LOGIN password (re-auth), the relay
+// verifies it and emits the open-ssh frame to the host itself. So the action is
+// gated server-side and a browser can't trigger SSH by sending a raw WS frame.
 
 // xterm themes mirroring TEDI's dark + light ANSI palettes (globals.css).
 export const TERMINAL_THEME_DARK = {
@@ -86,7 +106,8 @@ export const TERMINAL_THEME_LIGHT = {
 
 export type ThemeName = "light" | "dark";
 
-export const TERMINAL_FONT = '"JetBrains Mono", ui-monospace, Menlo, Consolas, "Courier New", monospace';
+export const TERMINAL_FONT =
+  '"JetBrains Mono", ui-monospace, Menlo, Consolas, "Courier New", monospace';
 
 // User-selectable terminal fonts (Settings). "JetBrains Mono" is bundled; the
 // rest fall back to whatever monospace the OS provides.
@@ -94,8 +115,16 @@ export type FontFamilyId = "jetbrains" | "system" | "menlo" | "consolas" | "cour
 
 export const FONT_FAMILIES: { id: FontFamilyId; label: string; stack: string }[] = [
   { id: "jetbrains", label: "JetBrains Mono", stack: TERMINAL_FONT },
-  { id: "system", label: "System monospace", stack: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" },
-  { id: "menlo", label: "Menlo / Monaco", stack: 'Menlo, Monaco, ui-monospace, "Courier New", monospace' },
+  {
+    id: "system",
+    label: "System monospace",
+    stack: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  },
+  {
+    id: "menlo",
+    label: "Menlo / Monaco",
+    stack: 'Menlo, Monaco, ui-monospace, "Courier New", monospace',
+  },
   { id: "consolas", label: "Consolas", stack: 'Consolas, "Courier New", ui-monospace, monospace' },
   { id: "courier", label: "Courier New", stack: '"Courier New", monospace' },
 ];
