@@ -236,10 +236,9 @@ impl DaemonClient {
         }
     }
 
-    /// Resize a session's PTY. Currently unused: the agent never reflows the
-    /// shared host PTY on a browser request (the web is a pure mirror, see the
-    /// "resize" no-op in main.rs), so this is kept only for protocol completeness.
-    #[allow(dead_code)]
+    /// Resize a session's PTY. Called when the browser has "Fit host to my
+    /// screen" on, so the shared PTY produces output at the browser's width
+    /// (this reflows the matching desktop terminal -- the intended trade-off).
     pub async fn resize(&self, id: Uuid, cols: u16, rows: u16) -> Result<(), String> {
         match self
             .request(|rid| ClientMsg::Resize { req_id: rid, session_id: id, cols, rows })

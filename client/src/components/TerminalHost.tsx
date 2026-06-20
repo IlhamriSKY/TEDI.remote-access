@@ -7,13 +7,12 @@ import type { Remote } from "@/hooks/useRemote";
 
 // Every mirrored session keeps a mounted xterm so switching tabs is instant and
 // background terminals stay live. Inactive panes use `invisible
-// pointer-events-none` (visibility, not display:none) so xterm can still
-// measure glyph metrics correctly. The browser always mirrors each terminal at
-// the host's real cols/rows -- it never resizes the shared PTY, so the desktop
-// terminal is never reflowed even when its pane on the PC is tiny. In "fit to
-// window" mode (the default) the active terminal is CSS-scaled (transform) to
-// fill the WHOLE pane here, so the web view stays full-screen no matter how
-// small the host's pane is. Fit off renders 1:1 and the pane scrolls.
+// pointer-events-none` (visibility, not display:none) so xterm can still measure
+// glyph metrics correctly. In "Fit host to my screen" mode (the default) the
+// active terminal is sized to the browser and the host PTY is resized to match,
+// so the view fills the pane at normal text size (it reflows the desktop pane,
+// the opt-in trade-off); just clip. Fit off mirrors the host's real size and
+// CSS-scales DOWN to fit, so center it and clip.
 export function TerminalHost({ remote }: { remote: Remote }) {
   const { sessions, activeId, fit, attachTerminal, focusActive, fitTerminal } = remote;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,7 +47,7 @@ export function TerminalHost({ remote }: { remote: Remote }) {
   return (
     <div
       ref={containerRef}
-      className="relative min-h-0 flex-1 overflow-hidden bg-background"
+      className="bg-background relative min-h-0 flex-1 overflow-hidden"
       onPointerDown={focusActive}
     >
       {sessions.map((s) => (
@@ -62,15 +61,18 @@ export function TerminalHost({ remote }: { remote: Remote }) {
             // via positioning, not padding, so clientWidth/Height measure the
             // real available box (the fit-to-window scale math needs the true size).
             "absolute inset-1.5",
-            // The xterm is always at the host's real size (pure mirror). fit ON
-            // ("fit to window"): CSS-scaled to fill, so center it and clip. fit
-            // OFF: shown 1:1, so let the pane scroll if it's bigger than the view.
-            fit ? "flex items-center justify-center overflow-hidden" : "overflow-auto",
-            s.id === activeId ? "visible z-10" : "invisible pointer-events-none",
+            // fit ON ("Fit host to my screen"): the xterm is sized to fill this
+            // box (the host PTY is resized to match), so just clip. fit OFF
+            // (mirror): the xterm is at the host size and CSS-scaled down, so
+            // center it and clip the overflow.
+            fit ? "overflow-hidden" : "flex items-center justify-center overflow-hidden",
+            s.id === activeId ? "visible z-10" : "pointer-events-none invisible",
           )}
         />
       ))}
-      {sessions.length === 0 && <EmptyState hostOnline={remote.hostOnline} connecting={remote.conn !== "open"} />}
+      {sessions.length === 0 && (
+        <EmptyState hostOnline={remote.hostOnline} connecting={remote.conn !== "open"} />
+      )}
     </div>
   );
 }
@@ -83,10 +85,10 @@ function EmptyState({ hostOnline, connecting }: { hostOnline: boolean; connectin
       : "Host is offline. Open TEDI on your PC to connect.";
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-      <span className="flex size-12 items-center justify-center border border-border bg-card text-muted-foreground">
+      <span className="border-border bg-card text-muted-foreground flex size-12 items-center justify-center border">
         <HugeiconsIcon icon={IconTerminal} size={22} strokeWidth={1.6} />
       </span>
-      <p className="max-w-xs text-xs text-muted-foreground">{msg}</p>
+      <p className="text-muted-foreground max-w-xs text-xs">{msg}</p>
     </div>
   );
 }

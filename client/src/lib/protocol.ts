@@ -43,12 +43,12 @@ export type ServerFrame =
 // bridge), built inline via `send` in useRemote:
 //   { t:"hello" } | { t:"ping" } | { t:"input"; id; b64 }
 //   | { t:"open"; cols; rows } | { t:"close"; id }
-// The browser NEVER sends a resize: it's a pure mirror that always renders each
-// terminal at the host PTY's real cols/rows and scales its OWN view with CSS, so
-// it can never reflow the shared desktop terminal. (The host agent + SSH bridge
-// also ignore any inbound resize, so an old client can't reflow it either.)
-// `{ t:"open"; cols; rows }` only sizes a BRAND-NEW PTY at creation, which the
-// desktop app then owns; it never resizes an existing shared session.
+//   | { t:"resize"; id; cols; rows }
+// "resize" is sent ONLY in "Fit host to my screen" mode (fit ON), for the active
+// terminal, to size the host PTY to the browser so the view is full-size at
+// normal text. This DOES reflow the shared desktop pane - the deliberate trade-
+// off of that mode. In mirror mode (fit OFF) the browser adopts the host's real
+// cols/rows and scales DOWN to fit client-side, never touching the host.
 //
 // Opening a SAVED SSH connection is deliberately NOT a WS frame: the browser
 // POSTs /api/open-ssh with the user's LOGIN password (re-auth), the relay

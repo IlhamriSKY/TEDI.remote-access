@@ -2,6 +2,16 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.9] - 2026-06-20
+
+- **"Fit host to my screen" now actually fits.** It resizes the host terminal to
+  fill your browser at normal, readable text, instead of just scaling the
+  picture. When your desktop pane is small, the web view used to come out tiny
+  (capped at the host's native size) or, before that, with giant blurry text;
+  now it fills the screen at a proper size. The desktop pane reflows to match,
+  the trade-off you opt into by turning this on. Turn it off to mirror the
+  desktop's exact size and scale down to fit, without ever touching the host.
+
 ## [0.8.8] - 2026-06-20
 
 Fixes for the browser client (some need TEDI 0.3.54).

@@ -81,6 +81,28 @@ function reconcileOrder(prev: SessionMeta[], incoming: SessionMeta[]): SessionMe
   return [...out, ...newcomers];
 }
 
+// How many cols/rows fit in `host` at the terminal's current cell size. This is
+// exactly what xterm's FitAddon computes (container px / cell px); we inline it
+// to avoid an addon whose published versions don't peer-match xterm 6. Reads the
+// renderer's measured cell size (no public API for it), so it's guarded.
+function proposeDims(term: Terminal, host: HTMLElement): { cols: number; rows: number } | null {
+  const core = (
+    term as unknown as {
+      _core?: {
+        _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } };
+      };
+    }
+  )._core;
+  const cell = core?._renderService?.dimensions?.css?.cell;
+  const cw = cell?.width;
+  const ch = cell?.height;
+  if (!cw || !ch) return null;
+  const w = host.clientWidth;
+  const h = host.clientHeight;
+  if (w < 2 || h < 2) return null;
+  return { cols: Math.max(2, Math.floor(w / cw)), rows: Math.max(1, Math.floor(h / ch)) };
+}
+
 export type Remote = ReturnType<typeof useRemote>;
 
 export function useRemote() {
@@ -274,51 +296,66 @@ export function useRemote() {
     }
   }, []);
 
-  // The browser is a PURE MIRROR: it ALWAYS renders each terminal at the host
-  // PTY's real cols/rows and NEVER sends a resize, so nothing the user does in the
-  // web can reflow the shared desktop terminal. The `fit` toggle only changes how
-  // THIS browser scales its own rendering:
-  //  - fit ON ("Fit to window", default): CSS-scale the mirrored terminal to fill
-  //    the pane, so it's full-size in the browser even when the desktop pane is
-  //    tiny (e.g. a 4-way split). Only a local transform - the host is untouched.
-  //  - fit OFF: render at the host's natural 1:1 size (no scaling); the pane clips.
-  const fitTerminal = useCallback((id: string | null) => {
-    if (!id) return;
-    const entry = terms.current.get(id);
-    const node = entry?.term.element;
-    const host = entry?.el;
-    if (!entry || !node || !host) return;
-    // Fit OFF: show the mirrored terminal at its natural 1:1 size.
-    if (!fitRef.current) {
-      node.style.transform = "";
-      node.style.transformOrigin = "";
-      return;
-    }
-    // Fit ON: CSS-scale the mirrored terminal to fill the pane. The terminal keeps
-    // the HOST's real cols/rows (we never resize the host), so only this browser's
-    // rendering scales - the desktop is never reflowed. Measure at 1:1, then fit.
-    requestAnimationFrame(() => {
-      const live = terms.current.get(id);
-      if (!live || live.el !== host || !fitRef.current) return;
-      const el = live.term.element;
-      if (!el) return;
-      el.style.transformOrigin = "center center";
-      el.style.transform = "none";
-      const tw = el.offsetWidth;
-      const th = el.offsetHeight;
-      const cw = host.clientWidth;
-      const ch = host.clientHeight;
-      if (tw < 2 || th < 2 || cw < 2 || ch < 2) {
-        el.style.transform = "";
+  // Two sizing modes, controlled by `fit`:
+  //  - fit ON ("Fit host to my screen", default): measure how many cols/rows fit
+  //    the browser at the current font, resize THIS xterm to that, and push the
+  //    size to the host PTY (a {t:resize} frame). The host produces output at the
+  //    browser's width, so the terminal is FULL-SIZE with normal, readable text
+  //    even when the desktop pane is tiny. Rendered 1:1 (no scaling). This does
+  //    reflow the shared desktop pane - the deliberate trade-off you opt into by
+  //    turning this on; only the ACTIVE terminal drives the host.
+  //  - fit OFF: never touch the host PTY. Mirror its real size and CSS-scale the
+  //    render DOWN to fit (never enlarge), so the desktop is never reflowed; a
+  //    small host stays at its native size rather than being blown up huge.
+  const fitTerminal = useCallback(
+    (id: string | null) => {
+      if (!id) return;
+      const entry = terms.current.get(id);
+      const node = entry?.term.element;
+      const host = entry?.el;
+      if (!entry || !node || !host) return;
+      if (fitRef.current) {
+        node.style.transform = "";
+        node.style.transformOrigin = "";
+        if (id !== activeIdRef.current) return; // only the visible terminal sizes the host
+        requestAnimationFrame(() => {
+          const live = terms.current.get(id);
+          if (!live || live.el !== host || !fitRef.current || id !== activeIdRef.current) return;
+          const dims = proposeDims(live.term, host);
+          if (!dims) return;
+          if (live.term.cols !== dims.cols || live.term.rows !== dims.rows) {
+            try {
+              live.term.resize(dims.cols, dims.rows);
+            } catch {
+              /* ignore */
+            }
+          }
+          send({ t: "resize", id, cols: dims.cols, rows: dims.rows });
+        });
         return;
       }
-      // Downscale-only: shrink a terminal that's bigger than the pane so it all
-      // fits, but NEVER enlarge a smaller one. Scaling a small host terminal up
-      // to fill a big browser made the text huge and blurry; capping at 1 keeps
-      // it at its native, readable size (centered, with breathing room).
-      el.style.transform = `scale(${Math.min(1, cw / tw, ch / th)})`;
-    });
-  }, []);
+      requestAnimationFrame(() => {
+        const live = terms.current.get(id);
+        if (!live || live.el !== host || fitRef.current) return;
+        const el = live.term.element;
+        if (!el) return;
+        el.style.transformOrigin = "center center";
+        el.style.transform = "none"; // measure natural size at 1:1
+        const tw = el.offsetWidth;
+        const th = el.offsetHeight;
+        const cw = host.clientWidth;
+        const ch = host.clientHeight;
+        if (tw < 2 || th < 2 || cw < 2 || ch < 2) {
+          el.style.transform = "";
+          return;
+        }
+        // Downscale-only: shrink a too-big terminal to fit, never enlarge a small
+        // one (that made the text huge and blurry).
+        el.style.transform = `scale(${Math.min(1, cw / tw, ch / th)})`;
+      });
+    },
+    [send],
+  );
 
   // --- frame handling -----------------------------------------------------
   const writeScrollback = useCallback(
@@ -326,9 +363,10 @@ export function useRemote() {
       const bytes = b64 ? b64ToBytes(b64) : new Uint8Array(0);
       const entry = terms.current.get(id);
       if (entry) {
-        // Always adopt the host PTY's real size - the browser mirrors the host and
-        // never drives its own size, so the desktop is never reflowed.
-        if (entry.term.cols !== cols || entry.term.rows !== rows) {
+        // In mirror mode (fit OFF) adopt the host PTY's real size. In fit-host
+        // mode the browser owns the size (fitTerminal drives it), so don't snap
+        // back to the host's size.
+        if (!fitRef.current && (entry.term.cols !== cols || entry.term.rows !== rows)) {
           try {
             entry.term.resize(cols, rows);
           } catch {
@@ -354,15 +392,17 @@ export function useRemote() {
           break;
         case "sessions": {
           const items = f.items;
-          // Always adopt each host PTY's real size - the browser is a pure mirror
-          // and never drives its own size, so the desktop is never reflowed.
-          for (const it of items) {
-            const e = terms.current.get(it.id);
-            if (e && (e.term.cols !== it.cols || e.term.rows !== it.rows)) {
-              try {
-                e.term.resize(it.cols, it.rows);
-              } catch {
-                /* ignore */
+          // In mirror mode (fit OFF) adopt each host PTY's real size; in fit-host
+          // mode the browser owns the size (fitTerminal drives the active one).
+          if (!fitRef.current) {
+            for (const it of items) {
+              const e = terms.current.get(it.id);
+              if (e && (e.term.cols !== it.cols || e.term.rows !== it.rows)) {
+                try {
+                  e.term.resize(it.cols, it.rows);
+                } catch {
+                  /* ignore */
+                }
               }
             }
           }
