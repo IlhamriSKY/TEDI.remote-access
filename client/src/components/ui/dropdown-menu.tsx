@@ -19,7 +19,7 @@ function DropdownMenuContent({
         sideOffset={sideOffset}
         collisionPadding={8}
         className={cn(
-          "bg-popover text-popover-foreground ring-foreground/10 dark:ring-foreground/15 z-50 min-w-[210px] origin-(--radix-dropdown-menu-content-transform-origin) border border-border p-1 shadow-lg ring-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+          "bg-popover text-popover-foreground z-50 min-w-[210px] origin-(--radix-dropdown-menu-content-transform-origin) border border-border p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           className,
         )}
         {...props}

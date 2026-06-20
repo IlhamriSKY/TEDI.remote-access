@@ -43,7 +43,7 @@ export function Modal({
         aria-labelledby={labelledBy}
         data-state="open"
         className={cn(
-          "w-full max-w-sm border border-border bg-card shadow-lg ring-1 ring-foreground/10 dark:ring-foreground/15",
+          "w-full max-w-sm border border-border bg-card shadow-lg",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           className,
         )}
