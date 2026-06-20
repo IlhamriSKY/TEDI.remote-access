@@ -2,6 +2,38 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.5] - 2026-06-20
+
+Security-hardening pass (pre-production audit; 3 adversarial reviews of the
+relay, agent, and web client). Treat the relay login as shell-equivalent: use a
+strong password and, ideally, enable TOTP. Apply the relay fixes by redeploying
+the relay bundle to your VPS.
+
+- **SSH bridge now enforces session ownership.** Browser `input`/`close`/`resize`
+  frames for SSH tabs were dispatched to `ssh_write`/`ssh_close`/`ssh_resize` by
+  id WITHOUT checking the id was actually mirrored, so a hostile relay could drive
+  keystrokes into SSH sessions the bridge never attached. The bridge now gates on
+  `sshAttached` (matching the native agent's ownership check).
+- **Agent validates untrusted PTY dimensions.** A browser `cols`/`rows` was cast
+  `as u16`, which silently wraps (65536 -> 0); a 0-width PTY wedges the shell and
+  reflows the desktop terminal. Dimensions are now clamped (reject 0 / > 1000) on
+  both resize and open.
+- **Agent rejects UNC working directories.** A browser-supplied `cwd` like
+  `\\\\attacker\\share` would open a shell at a UNC path, triggering an outbound
+  SMB auth that leaks Windows NTLM credentials. UNC cwds are now dropped.
+- **Hard session cap.** The browser-open cap now counts in-flight opens (not just
+  already-mirrored sessions), so a burst can't outrun the 2s discovery poll and
+  exceed the limit. The agent also fails closed unless the relay URL is `wss://`.
+- **Relay: optional Origin enforcement.** Set `ALLOWED_ORIGIN` (install.sh now
+  does) to reject browser WebSocket handshakes whose Origin isn't the relay,
+  defense-in-depth against cross-site WS hijacking on top of the SameSite=Strict
+  cookie.
+- **Relay: TOTP no longer blocks concurrent logins.** Replay protection tracked a
+  single high-water counter that rejected the current code on a second device in
+  the same window; it now tracks consumed counters with expiry.
+- **Relay: boot warning** when `TRUST_PROXY` is unset behind a localhost bind (the
+  login limiter would otherwise bucket every client as 127.0.0.1).
+
 ## [0.8.4] - 2026-06-20
 
 - **Browser-opened tabs reliably appear in the desktop app and show the

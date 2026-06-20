@@ -447,7 +447,11 @@ function handleSshRelayFrame(ctx, m) {
   if (!m || typeof m.t !== "string") return;
   if (m.t === "input" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
     const id = parseInt(m.id.slice(4), 10);
-    if (!Number.isNaN(id) && m.b64) {
+    // Only act on sessions THIS bridge actually mirrors. The relay broadcasts
+    // every browser frame to all sources, and an attacker-chosen id must never
+    // reach `ssh_write` for a session we never attached. Mirrors the native
+    // agent's `sessions.contains_key(&id)` ownership gate.
+    if (!Number.isNaN(id) && sshAttached.has(id) && m.b64) {
       ctx.invoke("ssh_write", { id, data: b64ToStr(m.b64) }).catch(() => {});
     }
   } else if (m.t === "close" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
@@ -455,7 +459,7 @@ function handleSshRelayFrame(ctx, m) {
     // PTY; the pump's exit event reaches the browser and the next pollSsh drops
     // it from the published list. (Daemon "close" for uuid ids is the agent's job.)
     const id = parseInt(m.id.slice(4), 10);
-    if (!Number.isNaN(id)) {
+    if (!Number.isNaN(id) && sshAttached.has(id)) {
       ctx.invoke("ssh_close", { id }).catch(() => {});
       sshAttached.delete(id);
       // ssh_close aborts the pump, so its Exit event isn't guaranteed; tell the
@@ -470,7 +474,9 @@ function handleSshRelayFrame(ctx, m) {
     const id = parseInt(m.id.slice(4), 10);
     const cols = m.cols | 0;
     const rows = m.rows | 0;
-    if (!Number.isNaN(id) && cols > 0 && rows > 0) {
+    // Same ownership gate as input/close, plus bound the dimensions so a bogus
+    // frame can't drive an absurd reflow of the shared desktop terminal.
+    if (!Number.isNaN(id) && sshAttached.has(id) && cols > 0 && cols <= 1000 && rows > 0 && rows <= 1000) {
       ctx.invoke("ssh_resize", { id, cols, rows }).catch(() => {});
     }
   } else if (m.t === "client_join") {

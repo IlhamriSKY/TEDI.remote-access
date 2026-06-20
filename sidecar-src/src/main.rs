@@ -15,6 +15,7 @@ mod daemon;
 mod wire;
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -212,9 +213,36 @@ fn parse_uuid(v: &Value) -> Option<Uuid> {
 /// discovery poll (which is what actually surfaces the new sessions).
 const MAX_MIRRORED_SESSIONS: usize = 24;
 const MIN_OPEN_INTERVAL: Duration = Duration::from_millis(300);
+/// Upper bound on a browser-supplied PTY dimension (cols/rows).
+const MAX_PTY_DIM: u64 = 1000;
+
+/// Browser-initiated opens that have been accepted but are not yet visible in
+/// `sessions` (the 2s discovery poll adds them). Counted toward the cap so a
+/// burst can't outrun the poll and blow past MAX_MIRRORED_SESSIONS while the
+/// daemon-side spawns are still in flight.
+static IN_FLIGHT_OPENS: AtomicUsize = AtomicUsize::new(0);
+
+/// Clamp a browser-supplied PTY dimension. `as u16` silently WRAPS (65536 -> 0),
+/// and a 0-width/height PTY wedges the shell, so reject 0 and absurd values
+/// instead of truncating. Returns None to drop the frame.
+fn clamp_dim(v: u64) -> Option<u16> {
+    if v == 0 || v > MAX_PTY_DIM {
+        return None;
+    }
+    Some(v as u16)
+}
+
+/// Reject UNC paths (`\\host\share` or `//host/share`). On Windows, opening a
+/// shell at a UNC path triggers an outbound SMB authentication that leaks the
+/// host's NTLM credentials to an attacker-chosen server, so a browser-supplied
+/// cwd must never be UNC.
+fn cwd_is_safe(cwd: &str) -> bool {
+    !(cwd.starts_with("\\\\") || cwd.starts_with("//"))
+}
 
 fn open_allowed(sessions: &Sessions) -> bool {
-    if sessions.lock().unwrap().len() >= MAX_MIRRORED_SESSIONS {
+    let live = sessions.lock().unwrap().len() + IN_FLIGHT_OPENS.load(Ordering::SeqCst);
+    if live >= MAX_MIRRORED_SESSIONS {
         eprintln!("[agent] open rejected: at session cap ({MAX_MIRRORED_SESSIONS})");
         return false;
     }
@@ -230,6 +258,8 @@ fn open_allowed(sessions: &Sessions) -> bool {
         }
     }
     *last = Some(now);
+    // Reserve a slot; the spawned daemon.open task releases it on completion.
+    IN_FLIGHT_OPENS.fetch_add(1, Ordering::SeqCst);
     true
 }
 
@@ -271,14 +301,14 @@ async fn handle_browser_frame(
             // never stalls the read loop. (SSH ids -> the bridge's ssh_resize.)
             if let (Some(id), Some(cols), Some(rows)) = (
                 v.get("id").and_then(parse_uuid),
-                v.get("cols").and_then(|x| x.as_u64()),
-                v.get("rows").and_then(|x| x.as_u64()),
+                v.get("cols").and_then(|x| x.as_u64()).and_then(clamp_dim),
+                v.get("rows").and_then(|x| x.as_u64()).and_then(clamp_dim),
             ) {
                 let owned = sessions.lock().unwrap().contains_key(&id);
                 if owned {
                     let daemon = daemon.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = daemon.resize(id, cols as u16, rows as u16).await {
+                        if let Err(e) = daemon.resize(id, cols, rows).await {
                             eprintln!("[agent] resize {id} failed: {e}");
                         }
                     });
@@ -292,15 +322,23 @@ async fn handle_browser_frame(
             // (hundreds of ms on Windows) doesn't stall reading further browser
             // frames. The 2s discovery poll then attaches + mirrors the session.
             if open_allowed(sessions) {
-                let cols = v.get("cols").and_then(|x| x.as_u64()).unwrap_or(80) as u16;
-                let rows = v.get("rows").and_then(|x| x.as_u64()).unwrap_or(24) as u16;
-                let cwd = v.get("cwd").and_then(|x| x.as_str()).map(|s| s.to_string());
+                let cols = v.get("cols").and_then(|x| x.as_u64()).and_then(clamp_dim).unwrap_or(80);
+                let rows = v.get("rows").and_then(|x| x.as_u64()).and_then(clamp_dim).unwrap_or(24);
+                // Drop an unsafe (UNC) cwd rather than the whole request: the user
+                // still gets a terminal, just at the daemon's default directory.
+                let cwd = v
+                    .get("cwd")
+                    .and_then(|x| x.as_str())
+                    .filter(|s| cwd_is_safe(s))
+                    .map(|s| s.to_string());
                 let daemon = daemon.clone();
                 tokio::spawn(async move {
                     match daemon.open(cols, rows, cwd).await {
                         Ok(id) => eprintln!("[agent] opened new session {id} ({cols}x{rows})"),
                         Err(e) => eprintln!("[agent] open failed: {e}"),
                     }
+                    // Release the reservation taken in open_allowed.
+                    IN_FLIGHT_OPENS.fetch_sub(1, Ordering::SeqCst);
                 });
             }
         }
@@ -354,6 +392,15 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    // The relay URL MUST be wss:// - the agent token rides the WS handshake as a
+    // Bearer header, so a plaintext ws:// would leak it and expose all terminal
+    // I/O. The extension forces wss://, but the agent fails closed regardless of
+    // how it was launched rather than ever connecting in cleartext.
+    if !cfg.relay_url.starts_with("wss://") {
+        eprintln!("[agent] config error: relay_url must use wss:// (got a non-TLS scheme)");
+        std::process::exit(1);
+    }
 
     // READY handshake for the extension (stdout only).
     println!(

@@ -18,7 +18,9 @@
 //
 // Config (env): PORT, AGENT_TOKEN (required), LOGIN_USER, LOGIN_PASS_HASH
 // ('salt:hash' from gen-hash.js, preferred) or LOGIN_PASS (dev only),
-// SESSION_SECRET, TOTP_SECRET (enables 2FA when set), TRUST_PROXY=1.
+// SESSION_SECRET, TOTP_SECRET (enables 2FA when set), TRUST_PROXY=1,
+// ALLOWED_ORIGIN (e.g. https://remote.example.com; enforces the browser WS
+// Origin when set).
 
 "use strict";
 
@@ -39,6 +41,12 @@ const LOGIN_PASS = process.env.LOGIN_PASS || "";
 const SESSION_SECRET = process.env.SESSION_SECRET || "";
 const TOTP_SECRET = process.env.TOTP_SECRET || "";
 const TRUST_PROXY = process.env.TRUST_PROXY === "1";
+// When set (e.g. https://remote.example.com), the browser WS upgrade must carry
+// a matching Origin header. This is defense-in-depth against cross-site WS
+// hijacking on top of the SameSite=Strict session cookie; leave empty to skip
+// the check (back-compat). The native agent + SSH bridge use /agent (token /
+// ticket) and are unaffected.
+const ALLOWED_ORIGIN = (process.env.ALLOWED_ORIGIN || "").replace(/\/+$/, "");
 const COOKIE_NAME = "tedi_remote_sess";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -162,14 +170,20 @@ function totpAt(secret, counter) {
 // consumes the counter only on a full login success (see /api/login), which
 // prevents replay within the window and stops a wrong-password attacker from
 // burning the user's counter. Window is [-1, 0] (past skew only).
-let lastTotpCounter = -1;
+// Counters consumed by a successful login, each with an expiry. A code can't be
+// replayed within its window, but this does NOT block the legitimate user's
+// other concurrent logins the way the old single high-water int did (it rejected
+// the CURRENT code on any second login in the same 30s window, locking out a
+// second device/tab). Pruned in the heartbeat.
+const consumedTotp = new Map(); // counter -> expiry ms
+const TOTP_CONSUME_TTL_MS = 90_000;
 function verifyTotp(code) {
   if (!TOTP_SECRET) return 0; // TOTP disabled: sentinel "valid", never consumed
   if (!/^\d{6}$/.test(String(code || ""))) return -1;
   const counter = Math.floor(Date.now() / 1000 / 30);
   for (const w of [-1, 0]) {
     const c = counter + w;
-    if (c <= lastTotpCounter) continue; // already consumed: reject replay
+    if (consumedTotp.has(c)) continue; // already consumed: reject replay
     if (safeEqStr(code, totpAt(TOTP_SECRET, c))) return c;
   }
   return -1;
@@ -352,7 +366,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 401, { ok: false, error: "invalid credentials" });
     }
     // Consume the OTP step only now (full success) so it can't be replayed.
-    if (TOTP_SECRET && totpC > lastTotpCounter) lastTotpCounter = totpC;
+    if (TOTP_SECRET && totpC >= 0) consumedTotp.set(totpC, Date.now() + TOTP_CONSUME_TTL_MS);
     loginFails.delete(ip);
     setSessionCookie(res, signSession(LOGIN_USER));
     return json(res, 200, { ok: true });
@@ -615,6 +629,18 @@ server.on("upgrade", (req, socket, head) => {
     }
     wssAgent.handleUpgrade(req, socket, head, (ws) => wssAgent.emit("connection", ws, req));
   } else if (pathname === "/client") {
+    // Defense-in-depth against cross-site WS hijacking: reject a browser
+    // handshake whose Origin doesn't match the configured public origin. The
+    // SameSite=Strict cookie already suppresses cross-site cookie attachment;
+    // this closes the gap for embedded WebViews / SameSite regressions.
+    if (ALLOWED_ORIGIN) {
+      const origin = (req.headers["origin"] || "").replace(/\/+$/, "");
+      if (origin !== ALLOWED_ORIGIN) {
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+    }
     if (!verifySession(getCookie(req, COOKIE_NAME))) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
@@ -648,6 +674,7 @@ const heartbeat = setInterval(() => {
   const now = Date.now();
   for (const [ip, e] of loginFails) if (now - (e.ts || 0) > 15 * 60_000) loginFails.delete(ip);
   for (const [k, exp] of agentTickets) if (exp <= now) agentTickets.delete(k);
+  for (const [c, exp] of consumedTotp) if (exp <= now) consumedTotp.delete(c);
 }, 30_000);
 heartbeat.unref();
 
@@ -657,6 +684,17 @@ server.headersTimeout = 15_000;
 server.listen(PORT, HOST, () => {
   log(`listening on ${HOST}:${PORT}`);
   log(`TOTP ${TOTP_SECRET ? "ENABLED" : "disabled"}; login user '${LOGIN_USER}'`);
+  // The relay binds localhost and expects a reverse proxy. Without TRUST_PROXY
+  // the login limiter keys on the socket peer, which is always 127.0.0.1 behind
+  // the proxy - every client shares one bucket, so 5 bad guesses lock out
+  // everyone. Warn loudly so a hand-rolled deploy doesn't ship this misconfig.
+  if (!TRUST_PROXY && (HOST === "127.0.0.1" || HOST === "::1" || HOST === "localhost")) {
+    log(
+      "WARNING: TRUST_PROXY is not set but the relay is bound to localhost (behind a proxy). " +
+        "Login rate-limiting will bucket ALL clients as 127.0.0.1. Set TRUST_PROXY=1.",
+    );
+  }
+  log(`WS Origin check: ${ALLOWED_ORIGIN ? `enforced (${ALLOWED_ORIGIN})` : "OFF (set ALLOWED_ORIGIN to enable)"}`);
 });
 
 // ----------------------------- graceful shutdown ------------------------------

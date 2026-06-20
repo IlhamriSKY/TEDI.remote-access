@@ -86,6 +86,9 @@ SESSION_SECRET=$SESSION_SECRET
 LOGIN_USER=$LOGIN_USER
 LOGIN_PASS_HASH=$PASS_HASH
 TRUST_PROXY=1
+# Reject browser WebSocket handshakes whose Origin isn't this relay (defense in
+# depth vs cross-site WS hijacking, on top of the SameSite=Strict cookie).
+ALLOWED_ORIGIN=https://$DOMAIN
 # Optional 2FA: set a base32 secret, add it to your authenticator app, then
 # login also requires the 6-digit code.
 # TOTP_SECRET=ABCDEFGHIJKLMNOP
