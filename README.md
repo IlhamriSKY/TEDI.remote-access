@@ -1,24 +1,38 @@
 # TEDI Remote Access
 
 Reach the terminals you have open in [TEDI](https://github.com/IlhamriSKY/TEDI)
-from a browser anywhere, while your PC is on and TEDI is running. The extension
-spawns a tiny native agent that mirrors your live terminal (and SSH) tabs to a
-**relay you host yourself**, so any phone or laptop can attach over HTTPS.
+from a browser anywhere, and open new terminal or SSH tabs straight from that
+browser, while your PC is on and TEDI is running. A tiny native agent mirrors
+your live tabs to a **relay you host yourself**, so any phone or laptop can
+attach over HTTPS.
 
 <p align="center">
   <img src="icon.png" alt="Remote Access" width="120" />
 </p>
 
 > [!NOTE]
-> You need two things: TEDI (see `engines.tedi` in `manifest.json` for the
-> minimum version) and a **relay you host** (a small VPS with a domain and TLS).
-> The whole relay plus website is set up below in a few steps. SSH-tab mirroring
-> also needs a TEDI build that exposes the `ssh_attach` host command (see
-> [Mirroring SSH tabs](#mirroring-ssh-tabs)).
+> You need TEDI (see `engines.tedi` in `manifest.json` for the minimum version)
+> and a **relay you host** — a small VPS with a domain and TLS. The whole relay
+> plus website is set up in a few steps below; `server/install.sh` does it all.
 
 Runs on the three operating systems TEDI supports: Windows, macOS, and Linux.
 
 ---
+
+## What you can do
+
+- **Mirror your open tabs.** See the exact terminals (and SSH tabs) open on your
+  desktop, scrollback included. Typing drives the same PTY, so input shows on
+  both. It is a mirror, not a separate shell.
+- **Open new tabs from the browser.** The tab strip's **+** opens a **New
+  terminal** on the host, or a **New SSH** connection.
+- **Safe SSH from the browser.** You can only open SSH hosts you have already
+  saved and verified on the desktop (host-key pinned) — you cannot add a new host
+  from the web. To connect you re-enter your **login** password, never the SSH
+  password: that stays in the host's keychain and never touches the browser.
+- **NAT-friendly, no inbound port.** The agent and the browser both dial **out**
+  to your relay, so nothing is exposed on your home network. Close TEDI and the
+  agent stops; the browser shows the host offline.
 
 ## How it works
 
@@ -26,235 +40,124 @@ Runs on the three operating systems TEDI supports: Windows, macOS, and Linux.
 flowchart LR
     A["Browser (phone / PC)<br/>xterm.js SPA, login"] <-->|"WSS + TLS<br/>session cookie"| B["Relay (your VPS)<br/>nginx + Node ws"]
     B <-->|"outbound WSS<br/>bearer token"| C["Agent (your PC)<br/>native sidecar"]
-    C <-->|"local pipe / socket"| D["TEDI PTY daemon<br/>(+ SSH tabs)"]
+    C <-->|"local pipe / socket"| D["TEDI PTY daemon<br/>(+ SSH bridge)"]
 ```
 
-The agent attaches to TEDI's PTY daemon as a **second subscriber** (the daemon
-fans terminal output to every client), so it mirrors the sessions you already
-have open without disturbing the desktop UI. It only ever dials **out** to your
-relay, so there is no inbound port on your PC. Close TEDI and the agent stops;
-the browser shows the host offline.
-
-- **Mirror, not a new shell.** You see the exact terminals open on your desktop, scrollback included. Typing drives the same PTY, so input shows on both.
-- **NAT-friendly.** The agent and the browser both connect out to your relay; nothing is exposed on your home network.
-- **TLS and auth end to end.** Your relay terminates HTTPS; the agent presents a bearer token, the browser logs in (password, optional TOTP), rate-limited.
+The agent attaches to TEDI's PTY daemon as a **second subscriber**, so it mirrors
+your open sessions without disturbing the desktop. Your relay terminates HTTPS;
+the agent presents a bearer token and the browser logs in (password, optional
+TOTP), rate-limited. Opening a tab from the browser asks the host to spawn it; an
+SSH open is verified by the relay against your login password first.
 
 ## Install
 
-1. Open **Settings > Extensions** in TEDI.
+1. Open **Settings → Extensions** in TEDI.
 2. Switch to the **From GitHub** tab.
-3. Paste `IlhamriSKY/TEDI.remote-access` and click **Review > Install**.
+3. Paste `IlhamriSKY/TEDI.remote-access` and click **Review → Install**.
+
+## Update
+
+In **Settings → Extensions**, click **Check updates** on this extension's card.
+If a new release exists, click **Update** to reinstall in place.
 
 ## Configure
 
-Open **Settings > Extensions > Remote Access** and set:
+Open **Settings → Extensions → Remote Access** and set:
 
-| Setting | Value |
-| --- | --- |
-| **Relay** | your relay's domain, e.g. `remote.example.com` |
+| Setting         | Value                                                              |
+| --------------- | ------------------------------------------------------------------ |
+| **Relay**       | your relay's domain, e.g. `remote.example.com`                     |
 | **Agent token** | the `AGENT_TOKEN` you set on the relay (stored in the OS keychain) |
-| **Host label** | a name shown to the browser (for example your PC name) |
+| **Host label**  | a name shown to the browser (e.g. your PC name)                    |
 
-Enable the extension itself (the toggle on its card) to start mirroring; disable
-it to stop. The status-bar icon shows the connection state.
-Then open `https://<your-domain>` on any device, sign in, and your open terminals
-appear as tabs.
+Enable the extension (the toggle on its card) to start; the status-bar icon shows
+the connection state. Then open `https://<your-domain>` on any device, sign in,
+and your tabs appear.
 
-## Self-host the relay (and website)
+## Self-host the relay
 
-The relay is the only public-facing piece. It runs on a small VPS, terminates
-TLS via nginx, authenticates the host **agent** (bearer token) and **browser**
-clients (login cookie), and pipes opaque frames between them. It never parses
-terminal data.
+The relay is the only public-facing piece: a small VPS that terminates TLS via
+nginx, authenticates the **agent** (bearer token) and **browsers** (login
+cookie), and pipes opaque frames between them. It never parses terminal data.
 
 ```
 browser --wss/TLS--> nginx (:443) --proxy--> relay (127.0.0.1:8788) <--wss out-- agent (your PC)
 ```
 
-You build the website **from source**; nothing pre-built is shipped. The pieces
-you deploy:
-
-| Path | Purpose |
-| --- | --- |
-| `client/` | The browser UI source (Vite + React + xterm.js). You build it. |
-| `server/server.js` | The relay (Node, only dependency is `ws`). |
-| `server/package.json`, `server/package-lock.json` | Relay dependencies. |
-| `server/gen-hash.js` | Generates the scrypt password hash for `LOGIN_PASS_HASH`. |
-| `server/deploy/tedi-remote.service` | systemd unit template. |
-| `server/deploy/remote.example.com.http.conf` | nginx phase 1 (ACME challenge only). |
-| `server/deploy/remote.example.com.conf` | nginx phase 2 (HTTPS + WS proxy + gzip). |
-
-Requirements: a VPS with **SSH**, **nginx**, **Node 18+**, and a domain whose A
-record points at the VPS. The steps below assume `remote.example.com`; replace
-it with your domain.
-
-> **Fastest path:** from the extracted bundle root, run `bash server/install.sh`.
-> It asks for your domain + login, generates the secrets, builds the website,
-> installs the systemd service + nginx vhost, and prints the **Agent token** to
-> paste into the extension. Obtain the TLS cert with the `certbot` line it
-> prints, then re-run it once to switch to HTTPS. The manual steps below do the
-> same thing by hand.
-
-### 1. Get the source onto the VPS
-
-Either clone the repo or download `tedi-remote-relay-<version>.tar.gz` from the
-[release](https://github.com/IlhamriSKY/TEDI.remote-access/releases) and extract
-it. You should end up with `client/` and `server/` side by side.
+You need a VPS with **SSH**, **nginx**, **Node 18+**, and a domain whose A record
+points at it. From the extracted release bundle (or a clone), the one-command
+setup:
 
 ```bash
-sudo mkdir -p /var/www/html/tedi-remote && sudo chown -R "$USER":"$USER" /var/www/html/tedi-remote
-# copy client/ and server/ into /var/www/html/tedi-remote
-cd /var/www/html/tedi-remote
+bash server/install.sh
 ```
 
-### 2. Build the website from source
+It asks for your domain + login, generates the secrets, builds the website from
+`client/`, installs the systemd service + nginx vhost, and prints the **Agent
+token** to paste into the extension. Obtain the TLS cert with the `certbot` line
+it prints, then re-run it once to switch to HTTPS.
 
-This compiles `client/` into `server/public`, which the relay serves.
+Prefer to do it by hand? The pieces live under `server/`: `server.js` (the relay,
+only dependency is `ws`), `gen-hash.js` (scrypt hash for `LOGIN_PASS_HASH`), and
+`deploy/` (the systemd unit + the two nginx vhost phases). Build the website with
+`cd client && npm run build` (outputs to `server/public`), put your config in
+`server/.env` (`AGENT_TOKEN`, `SESSION_SECRET`, `LOGIN_USER`, `LOGIN_PASS_HASH`,
+`TRUST_PROXY=1`, plus optional `TOTP_SECRET` and `ALLOWED_ORIGIN`), and run it
+under the systemd unit behind the nginx vhost.
 
-```bash
-cd client && npm install && npm run build && cd ..
-```
+**Operate:** `sudo systemctl restart tedi-remote` and
+`journalctl -u tedi-remote -f`. To update, rebuild the website and copy the new
+`server/public` + `server.js` up, then restart.
 
-### 3. Generate secrets (keep them safe)
+## SSH tabs
 
-```bash
-node -e "const c=require('crypto');console.log('AGENT_TOKEN='+c.randomBytes(32).toString('hex'));console.log('SESSION_SECRET='+c.randomBytes(32).toString('hex'))"
-node server/gen-hash.js 'a-strong-password'    # prints the salt:hash to paste after LOGIN_PASS_HASH=
-```
-
-### 4. Install and configure the relay
-
-```bash
-cd server && npm install --omit=dev && cd ..
-```
-
-Create `server/.env` (mode 600, **never commit it**):
-
-```ini
-PORT=8788
-AGENT_TOKEN=<from step 3>
-SESSION_SECRET=<from step 3>
-LOGIN_USER=admin
-LOGIN_PASS_HASH=<from gen-hash.js>
-TRUST_PROXY=1
-# Optional 2FA: set a base32 secret, add it to your authenticator app, then
-# login also requires the 6-digit code.
-# TOTP_SECRET=ABCDEFGHIJKLMNOP
-```
-
-```bash
-chmod 600 server/.env
-```
-
-### 5. Run it as a systemd service
-
-Edit `server/deploy/tedi-remote.service` so `ExecStart` points at your `node`
-(for an nvm install: `/home/<user>/.nvm/versions/node/<ver>/bin/node`), `User=`
-is your account, and `WorkingDirectory=` is `/var/www/html/tedi-remote/server`,
-then:
-
-```bash
-sudo cp server/deploy/tedi-remote.service /etc/systemd/system/tedi-remote.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now tedi-remote
-systemctl is-active tedi-remote && curl -s http://127.0.0.1:8788/healthz   # -> ok
-```
-
-### 6. nginx and TLS (certbot webroot)
-
-```bash
-# phase 1: HTTP-only block so certbot can answer the ACME challenge
-sed 's/remote.example.com/<your-domain>/g' server/deploy/remote.example.com.http.conf \
-  | sudo tee /etc/nginx/conf.d/<your-domain>.conf
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot certonly --webroot -w /var/lib/letsencrypt -d <your-domain>
-
-# phase 2: full HTTPS + WebSocket proxy + gzip
-sed 's/remote.example.com/<your-domain>/g' server/deploy/remote.example.com.conf \
-  | sudo tee /etc/nginx/conf.d/<your-domain>.conf
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-The vhost proxies everything to `127.0.0.1:8788`, upgrades WebSockets, gzips
-JS/CSS/JSON, and serves the website. Open `https://<your-domain>`; you should see
-the login page.
-
-### 7. Point the extension at it
-
-In TEDI, set **Relay** to your domain (e.g. `remote.example.com`) and **Agent
-token** to the `AGENT_TOKEN` from step 3, then enable it (see
-[Configure](#configure)).
-
-### Operate and update
-
-```bash
-sudo systemctl restart tedi-remote
-sudo journalctl -u tedi-remote -f
-```
-
-To update the website: rebuild it (`cd client && npm run build`), copy the new
-`server/public` and `server/server.js` up, and `sudo systemctl restart tedi-remote`.
-
-## Mirroring SSH tabs
-
-Local terminals mirror out of the box. SSH tabs are different: TEDI keeps each
-SSH session in the GUI process (not the PTY daemon), so the agent cannot see
-them. Instead, `extension.js` runs a small bridge in the webview that reads SSH
-tabs through the `ssh_list_sessions` and `ssh_attach` host commands and forwards
-them to the relay as a second source (shown with a sky stripe and `ssh` badge in
-the browser). Browser keystrokes route back through `ssh_write`, and closing an
-SSH tab from the browser runs `ssh_close`. Resize is a deliberate no-op (the
-browser scales to fit so the desktop SSH terminal is never reflowed).
-
-On a TEDI build that exposes those commands this happens automatically; on older
-builds the bridge no-ops and only local terminals mirror. The TEDI-core changes
-required (`ssh_list_sessions`, `ssh_attach`, and `ctx.invokeChannel`) live in the
-main TEDI repo, not this extension.
+TEDI keeps each SSH session in the GUI process (not the PTY daemon), so a small
+bridge inside `extension.js` mirrors them through the `ssh_*` host commands
+(shown with a sky stripe + `ssh` badge in the browser); keystrokes route back via
+`ssh_write` and closing via `ssh_close`. Opening a **New SSH** from the browser
+goes through `ctx.ssh`: the host opens one of your saved, host-key-pinned
+connections using credentials from its own keychain, so the SSH password is never
+sent to or seen by the browser. Resize is a deliberate no-op, so the desktop SSH
+terminal is never reflowed.
 
 ## Permissions
 
-| Permission | Why |
-| --- | --- |
-| `invoke:shell_bg_spawn_direct` / `invoke:shell_bg_logs` / `invoke:shell_bg_kill` | Spawn, read the `READY` handshake of, and stop the agent. |
-| `invoke:ssh_list_sessions` / `invoke:ssh_attach` / `invoke:ssh_write` / `invoke:ssh_close` | Mirror SSH tabs and let the browser type into / close them (no-ops on builds without these commands). |
-| `settings:read` | Read the relay domain and host label. |
-| `secrets:read` | Read the agent token from the OS keychain. |
-| `ui:toast` | Connection and error toasts. |
-| `statusbar:write` | The connection-state status-bar icon. |
+| Permission                                                               | Why                                                                                                                     |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `invoke:shell_bg_spawn_direct` / `_logs` / `_kill`                       | Spawn, read the `READY` handshake of, and stop the agent.                                                               |
+| `invoke:ssh_list_sessions` / `_attach` / `_write` / `_close` / `_resize` | Mirror SSH tabs and let the browser type into / close them.                                                             |
+| `ssh:connections`                                                        | List your saved SSH hosts (metadata only) and open one by id for **New SSH**. The SSH credentials stay in the keychain. |
+| `settings:read`                                                          | Read the relay domain and host label.                                                                                   |
+| `secrets:read`                                                           | Read the agent token from the OS keychain.                                                                              |
+| `ui:toast`                                                               | Connection and error toasts.                                                                                            |
+| `statusbar:write`                                                        | The connection-state status-bar icon.                                                                                   |
 
 The agent dials out only; it opens no inbound port. The relay is the single
 public surface and is gated by login.
 
 ## Security
 
-This exposes a full shell to the internet, so treat it like SSH.
+This exposes a shell to the internet, so treat it like SSH.
 
-**Operating advice**
+- Use a strong relay password and enable **TOTP** (`TOTP_SECRET`). You can change
+  the password from the browser (account menu → **Change password**).
+- Rotate `AGENT_TOKEN` and the password periodically; rotating `SESSION_SECRET`
+  logs everyone out. Set `ALLOWED_ORIGIN` to your domain and keep `TRUST_PROXY=1`.
+- The relay binds `127.0.0.1`; only nginx (TLS) faces the net. Consider an nginx
+  IP allow-list if your access IPs are stable.
 
-- Use a strong relay password and enable **TOTP** (set `TOTP_SECRET`).
-- Rotate `AGENT_TOKEN` and the password periodically; rotating `SESSION_SECRET` logs everyone out. You can change the login password from the browser (account menu > **Change password**); the relay saves the new hash to `server/login-pass.hash`, which then overrides `LOGIN_PASS_HASH`.
-- The relay binds `127.0.0.1`; only nginx (TLS) faces the net. Consider an nginx IP allow-list if your access IPs are stable.
+**Built in.** TLS-only (the extension forces `wss://`), constant-time token +
+scrypt-login checks, IP rate-limiting, single-use TOTP, connection + frame caps,
+a Content-Security-Policy + WebSocket Origin check, and a sandboxed systemd unit.
+SSH credentials never leave the host keychain; opening SSH from the browser needs
+a fresh login-password re-auth and a browser cannot trigger it with a raw WS
+frame.
 
-**Built-in hardening.** Transport is TLS-only (the extension forces `wss://`, so a
-plaintext relay URL can't leak the token or terminal stream). The relay compares
-the agent token and verifies the scrypt login in constant time, rate-limits login
-on the real client IP, makes one-time TOTP codes single-use, caps connections and
-frame sizes, debounces scrollback replays, sends a Content-Security-Policy, and
-runs under a sandboxed systemd unit. The agent only writes input to sessions it
-mirrors, and the daemon framing is length-bounded.
-
-**Known considerations (threat-model dependent).**
-
-- **The agent token is passed to the agent on its command line**, so another
-  process running as *you* on the same machine could read it from the OS process
-  list. On a single-user PC that's only your own processes; on a shared host,
-  treat the relay token as locally recoverable (rotate it if that host is shared).
-- **On a multi-user / RDP Windows host**, TEDI's PTY-daemon named pipe is not
-  ACL-restricted, so another local user could attach to your terminals. Not a
-  concern on a single-user machine (the Unix socket is mode `0600`).
-- **TEDI extensions run unsandboxed** in the app webview, so install-time
-  permission consent (which flags this extension's high-risk permissions) is the
-  real trust boundary — install only extensions you trust.
+**Known considerations.** The agent token is on the agent's command line (another
+process running as _you_ could read it — rotate it on a shared host); TEDI's
+Windows PTY-daemon pipe is not ACL-restricted (a concern only on multi-user / RDP
+hosts; the Unix socket is `0600`); and extensions run unsandboxed, so install-time
+permission consent is the real trust boundary — install only extensions you trust.
 
 ## Development
 
@@ -262,43 +165,29 @@ mirrors, and the daemon framing is length-bounded.
 git clone https://github.com/IlhamriSKY/TEDI.remote-access.git
 cd TEDI.remote-access
 
-# Extension bundle: src/index.js -> extension.js (the single file TEDI loads).
-# extension.js is generated, not committed; run this after editing src/.
+# Extension bundle: src/index.js -> extension.js (generated, not committed).
 npm install && npm run build
 
-# Native agent (the sidecar that mirrors TEDI -> relay)
+# Native agent (mirrors TEDI -> relay). Copy the binary into sidecar/<os>-<arch>/.
 cd sidecar-src && cargo build --release && cd ..
-# copy the binary into the matching sidecar/<os>-<arch>/ folder, for example:
-#   Windows: sidecar/windows-x86_64/tedi-remote-agent.exe
-#   macOS:   sidecar/macos-x86_64/  or  sidecar/macos-aarch64/
-#   Linux:   sidecar/linux-x86_64/
 
-# Browser website (Vite SPA) -> built into server/public
+# Browser website (Vite SPA) -> built into server/public.
 cd client && npm install && npm run build && cd ..
-
-# Relay (runs on the VPS)
-cd server && npm install && cd ..
 ```
 
-Repo layout:
-
-| Path | What | Runs on |
-| --- | --- | --- |
-| `manifest.json`, `icon.png` | Extension metadata + icon. | TEDI (your PC) |
-| `src/`, `build.mjs` | Extension source (`src/index.js`), bundled by esbuild into `extension.js`. | build-time |
-| `extension.js` | Built bundle TEDI loads (git-ignored; built into the release zip by CI). | TEDI (your PC) |
-| `sidecar-src/` | Rust agent source. | build-time |
-| `sidecar/` | CI-built agent binaries, per OS/arch (git-ignored; in the release zip). | your PC |
-| `client/` | Browser website source (React + Tailwind + shadcn, xterm.js). | build-time |
-| `server/` | Relay (Node `ws`) + `deploy/` (nginx, systemd). | your VPS |
+| Path                        | What                                                      | Runs on        |
+| --------------------------- | --------------------------------------------------------- | -------------- |
+| `manifest.json`, `icon.png` | Extension metadata + icon.                                | TEDI (your PC) |
+| `src/`, `build.mjs`         | Extension source, bundled into `extension.js` by esbuild. | build-time     |
+| `sidecar-src/`, `sidecar/`  | Rust agent source + CI-built binaries (git-ignored).      | your PC        |
+| `client/`                   | Browser website source (React + Tailwind, xterm.js).      | build-time     |
+| `server/`                   | Relay (Node `ws`) + `deploy/` (nginx, systemd).           | your VPS       |
 
 To cut a release, bump `manifest.json` + `CHANGELOG.md`, tag `vX.Y.Z`, and push.
 CI ([`.github/workflows/release.yml`](.github/workflows/release.yml)) builds the
 agent for Windows, macOS (x64 + arm64), and Linux, verifies the website builds,
-packages the extension `.zip` (which TEDI's installer reads from
-`releases/latest`) plus a `.tar.gz` source bundle of the relay and website, and
-uploads both to the GitHub release. The release job uses the workflow's built-in
-`GITHUB_TOKEN`.
+and uploads the extension `.zip` (which TEDI's installer reads from
+`releases/latest`) plus a `.tar.gz` relay/website source bundle to the release.
 
 ## License
 
