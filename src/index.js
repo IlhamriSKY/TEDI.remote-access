@@ -485,15 +485,24 @@ function handleSshRelayFrame(ctx, m) {
       ctx.invoke("ssh_write", { id, data: b64ToStr(m.b64) }).catch(() => {});
     }
   } else if (m.t === "close" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
-    // Close a tab from the browser: end the SSH session. ssh_close tears down the
-    // PTY; the pump's exit event reaches the browser and the next pollSsh drops
-    // it from the published list. (Daemon "close" for uuid ids is the agent's job.)
+    // Close a tab from the browser. Prefer closing the real DESKTOP tab via
+    // ctx.ssh.closeConnection (TEDI >= 0.3.54): that tears down the SSH session
+    // AND removes the tab on the desktop, so closing on the web closes both
+    // sides. Fall back to ssh_close (session only) on an older core.
     const id = parseInt(m.id.slice(4), 10);
     if (!Number.isNaN(id) && sshAttached.has(id)) {
-      ctx.invoke("ssh_close", { id }).catch(() => {});
+      let closedTab = false;
+      if (ctx.ssh && typeof ctx.ssh.closeConnection === "function") {
+        try {
+          closedTab = ctx.ssh.closeConnection(id);
+        } catch {
+          closedTab = false;
+        }
+      }
+      if (!closedTab) ctx.invoke("ssh_close", { id }).catch(() => {});
       sshAttached.delete(id);
-      // ssh_close aborts the pump, so its Exit event isn't guaranteed; tell the
-      // browser the tab is dead now (the next pollSsh authoritatively drops it).
+      // Tell the browser the tab is dead now (the next pollSsh authoritatively
+      // drops it from the published list).
       sshSend({ t: "exit", id: m.id, code: 0 });
     }
   } else if (m.t === "resize" && typeof m.id === "string" && m.id.startsWith("ssh:")) {

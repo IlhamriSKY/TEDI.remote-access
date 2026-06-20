@@ -312,7 +312,11 @@ export function useRemote() {
         el.style.transform = "";
         return;
       }
-      el.style.transform = `scale(${Math.min(cw / tw, ch / th)})`;
+      // Downscale-only: shrink a terminal that's bigger than the pane so it all
+      // fits, but NEVER enlarge a smaller one. Scaling a small host terminal up
+      // to fill a big browser made the text huge and blurry; capping at 1 keeps
+      // it at its native, readable size (centered, with breathing room).
+      el.style.transform = `scale(${Math.min(1, cw / tw, ch / th)})`;
     });
   }, []);
 

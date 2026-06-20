@@ -28,7 +28,8 @@ export function TabBar({ remote }: { remote: Remote }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [sshOpen, setSshOpen] = useState(false);
-  if (sessions.length === 0) return null;
+  // Render the strip even with zero tabs so the "+" stays available: otherwise
+  // there's no way to open a terminal / SSH from the web once everything closes.
 
   return (
     <>

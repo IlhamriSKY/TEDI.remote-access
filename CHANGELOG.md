@@ -2,6 +2,25 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.8.8] - 2026-06-20
+
+Fixes for the browser client (some need TEDI 0.3.54).
+
+- **"Fit to window" no longer makes the text huge.** It now only shrinks a
+  terminal that's bigger than your screen so it all fits; a smaller host terminal
+  is shown at its native, readable size (centered) instead of being scaled up
+  into giant blurry text.
+- **You can open a tab again when none are open.** The "+" (New terminal / New
+  SSH) used to disappear once every tab was closed, leaving no way to open one
+  from the web. It now always stays available.
+- **Closing a tab in the browser now closes it in the desktop app too.** SSH tabs
+  closed from the web were left open on the desktop; the browser now closes the
+  real desktop tab (needs TEDI 0.3.54).
+- **SSH tab numbers match the desktop app.** SSH tabs were numbered by position
+  instead of the app's real tab number (needs TEDI 0.3.54).
+- **No unwanted beep on connect.** Connecting to a session that's already waiting
+  on an AI approval no longer beeps on the desktop (needs TEDI 0.3.54).
+
 ## [0.8.7] - 2026-06-20
 
 - **Open an SSH connection from the browser "+".** The "+" in the tab strip is now
