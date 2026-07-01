@@ -58,7 +58,7 @@ export function SettingsModal({ remote, onClose }: { remote: Remote; onClose: ()
 
           <Row
             label="Fit host to my screen"
-            hint="On: resize the host terminal to fill this screen (big even when the app pane is small). Off: mirror the desktop's size and scale to fit."
+            hint="Off (recommended): mirror the desktop at its real size and scale to fit — never touches the app. On: resize the shared host terminal to fill this screen, which also reshapes it in the TEDI desktop app and can garble a full-screen TUI like Claude."
           >
             <Button
               variant="outline"

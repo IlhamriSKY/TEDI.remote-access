@@ -10,7 +10,9 @@ import {
   fontStack,
   TERMINAL_THEME_DARK,
   TERMINAL_THEME_LIGHT,
+  type AiCliState,
   type FontFamilyId,
+  type RemoteWorkspace,
   type SavedSshConn,
   type ServerFrame,
   type SessionMeta,
@@ -25,7 +27,11 @@ const FONT_KEY = "tedi-remote-fontsize";
 const FONTFAMILY_KEY = "tedi-remote-fontfamily";
 const LINEHEIGHT_KEY = "tedi-remote-lineheight";
 const THEME_KEY = "tedi-remote-theme";
-const FIT_KEY = "tedi-remote-fit";
+// Bumped from "tedi-remote-fit" so every existing browser resets to the new
+// safe default (mirror / OFF). The old key persisted "1" for everyone, because
+// the previous default was ON and the persist effect wrote it on mount — so
+// reusing the key would keep host-resize on and keep garbling the desktop.
+const FIT_KEY = "tedi-remote-fit2";
 const DEFAULT_FONT = 13;
 const clampFont = (n: number) => Math.min(28, Math.max(8, n || DEFAULT_FONT));
 const clampLineHeight = (n: number) => Math.min(1.6, Math.max(1.0, n || DEFAULT_LINE_HEIGHT));
@@ -127,11 +133,25 @@ export function useRemote() {
   const [user, setUser] = useState("");
   const [theme, setThemeState] = useState<ThemeName>(getInitialTheme);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  // Per-tab AI-CLI state mirrored from the desktop (keyed by session id). This is
+  // the authoritative working indicator: it covers EVERY tab (not just the one
+  // in view) and works on Windows, where the shell emits no OSC 133 C for the
+  // client-side `busy` heuristic to latch onto.
+  const [status, setStatus] = useState<Record<string, AiCliState>>({});
+  // Which workspace each session belongs to (session id -> workspace id), and the
+  // list of workspaces to switch between — both mirrored from the desktop via
+  // tabmeta. Only workspaces with a live (mirrored) terminal appear.
+  const [wsById, setWsById] = useState<Record<string, string>>({});
+  const [workspaces, setWorkspaces] = useState<RemoteWorkspace[]>([]);
+  // Default OFF: the browser is a PURE MIRROR that never resizes the shared host
+  // PTY, so opening the remote can't reflow/garble the desktop terminal (a
+  // full-screen TUI like Claude especially). Host-fill is an explicit opt-in
+  // ("Fit host to my screen"), which persists "1"; anything else is mirror mode.
   const [fit, setFit] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(FIT_KEY) !== "0";
+      return localStorage.getItem(FIT_KEY) === "1";
     } catch {
-      return true;
+      return false;
     }
   });
 
@@ -459,9 +479,29 @@ export function useRemote() {
           break;
         }
         case "tabmeta": {
-          const next: Record<string, number> = {};
-          for (const it of f.items) next[it.ptyId] = it.ordinal;
-          setOrdinals(next);
+          const nextOrd: Record<string, number> = {};
+          const nextStatus: Record<string, AiCliState> = {};
+          const nextWsById: Record<string, string> = {};
+          // Preserve first-seen order + de-dup workspaces by id.
+          const wsMap = new Map<string, RemoteWorkspace>();
+          for (const it of f.items) {
+            nextOrd[it.ptyId] = it.ordinal;
+            if (it.state) nextStatus[it.ptyId] = it.state;
+            if (it.wsId) {
+              nextWsById[it.ptyId] = it.wsId;
+              if (!wsMap.has(it.wsId)) {
+                wsMap.set(it.wsId, {
+                  id: it.wsId,
+                  name: it.wsName || "Workspace",
+                  active: !!it.wsActive,
+                });
+              }
+            }
+          }
+          setOrdinals(nextOrd);
+          setStatus(nextStatus);
+          setWsById(nextWsById);
+          setWorkspaces([...wsMap.values()]);
           break;
         }
         case "ssh-conns":
@@ -797,6 +837,25 @@ export function useRemote() {
     });
   }, []);
 
+  // The workspace currently in view = the one owning the active tab, falling back
+  // to the desktop's active workspace, then the first. Derived (no extra state)
+  // so it can never drift out of sync with activeId.
+  const activeWs =
+    (activeId && wsById[activeId]) ||
+    workspaces.find((w) => w.active)?.id ||
+    workspaces[0]?.id ||
+    null;
+
+  // Switch the viewed workspace by focusing its first tab (which, by the
+  // derivation above, makes it the active workspace). No-op if it has no live tab.
+  const selectWorkspace = useCallback(
+    (workspaceId: string) => {
+      const first = sessionsRef.current.find((s) => wsById[s.id] === workspaceId);
+      if (first) setActiveId(first.id);
+    },
+    [wsById],
+  );
+
   return {
     authed,
     totpRequired,
@@ -831,6 +890,11 @@ export function useRemote() {
     setTheme,
     toggleTheme,
     busy,
+    status,
+    wsById,
+    workspaces,
+    activeWs,
+    selectWorkspace,
     login,
     logout,
     changePassword,

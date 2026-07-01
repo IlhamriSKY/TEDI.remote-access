@@ -24,6 +24,13 @@ const tabLabel = (s: SessionMeta) => s.title || (s.kind === "ssh" ? "ssh" : "ter
 // host, and closes the matching tab in the desktop app too).
 export function TabBar({ remote }: { remote: Remote }) {
   const { sessions, activeId, setActiveId } = remote;
+  // With multiple workspaces, show only the viewed workspace's tabs (the
+  // WorkspaceBar switches between them). One workspace / no workspace metadata
+  // (older host) -> show every tab, exactly as before.
+  const shown =
+    remote.workspaces.length > 1 && remote.activeWs
+      ? sessions.filter((s) => remote.wsById[s.id] === remote.activeWs)
+      : sessions;
   const [pendingClose, setPendingClose] = useState<SessionMeta | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -38,10 +45,13 @@ export function TabBar({ remote }: { remote: Remote }) {
         aria-label="Terminals"
         className="no-scrollbar border-border bg-muted flex h-9 shrink-0 items-stretch overflow-x-auto border-b"
       >
-        {sessions.map((s, idx) => {
+        {shown.map((s, idx) => {
           const active = s.id === activeId;
           const ssh = s.kind === "ssh";
-          const running = !!remote.busy[s.id];
+          // Prefer the desktop-mirrored AI-CLI state (covers every tab, works on
+          // Windows); fall back to the OSC 133 `busy` heuristic where it's absent.
+          const st = remote.status[s.id];
+          const running = st === "working" || st === "blocking" || !!remote.busy[s.id];
           const accent = ssh ? "text-[#38bdf8]" : "text-terminal";
           return (
             <div

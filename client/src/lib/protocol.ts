@@ -1,5 +1,16 @@
 export type SessionKind = "pty" | "ssh";
 
+/** Per-terminal AI-CLI run state, mirrored from the desktop app so the web shows
+ *  the same working indicator on EVERY tab (not just the focused one). The
+ *  browser can't derive this itself — PowerShell emits no OSC 133 C, and only
+ *  the host sees commands started from the desktop. */
+export type AiCliState = "idle" | "working" | "blocking";
+
+/** A workspace the browser can switch between, derived from the tabmeta the host
+ *  sends. Only workspaces with at least one live (mirrored) terminal appear — a
+ *  workspace the desktop never opened this run has no live PTY to mirror. */
+export type RemoteWorkspace = { id: string; name: string; active: boolean };
+
 export type SessionMeta = {
   id: string;
   title?: string;
@@ -34,8 +45,21 @@ export type ServerFrame =
   | { t: "exit"; id: string; code: number }
   | { t: "pong" }
   // Sent by the host extension (via the relay): the desktop app's tab numbers
-  // keyed by daemon ptyId, so the browser labels tabs the same as the app.
-  | { t: "tabmeta"; items: { ptyId: string; ordinal: number }[] }
+  // keyed by daemon ptyId, so the browser labels tabs the same as the app. Each
+  // item also carries the tab's AI-CLI state (idle/working/blocking) so the
+  // browser shows the working indicator on every tab, and the owning workspace
+  // (wsId/wsName/wsActive) so the browser groups tabs into the same workspaces.
+  | {
+      t: "tabmeta";
+      items: {
+        ptyId: string;
+        ordinal: number;
+        state?: AiCliState;
+        wsId?: string;
+        wsName?: string;
+        wsActive?: boolean;
+      }[];
+    }
   // Saved SSH hosts the browser may open (secret-free, pinned-only).
   | { t: "ssh-conns"; items: SavedSshConn[] };
 
