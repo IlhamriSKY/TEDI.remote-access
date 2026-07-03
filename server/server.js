@@ -68,7 +68,8 @@ const CSP = [
   `script-src 'self' 'unsafe-inline'${TURNSTILE_ON ? " " + TURNSTILE_HOST : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
-  "font-src 'self'",
+  // Turnstile ships its widget fonts as data: URIs, so allow them when enabled.
+  `font-src 'self'${TURNSTILE_ON ? " data:" : ""}`,
   `connect-src 'self'${TURNSTILE_ON ? " " + TURNSTILE_HOST : ""}`,
   ...(TURNSTILE_ON ? [`frame-src ${TURNSTILE_HOST}`] : []),
   "frame-ancestors 'none'",

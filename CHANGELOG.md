@@ -2,6 +2,15 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.10.1] - 2026-07-03
+
+### Fixed
+
+- **Turnstile widget fonts were blocked by the relay CSP.** With Turnstile
+  enabled the login page threw `font-src 'self'` violations for the widget's
+  `data:` fonts (the checkbox still rendered, but the console filled with errors).
+  The relay now adds `data:` to `font-src` when Turnstile is on.
+
 ## [0.10.0] - 2026-07-03
 
 Needs TEDI >= 0.3.73 for the workspace actions (create / choose target). Resize
