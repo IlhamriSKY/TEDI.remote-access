@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type RefObject } from "rea
 
 import { Button } from "@/components/ui/button";
 import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
+import { Turnstile } from "@/components/Turnstile";
 import type { Remote } from "@/hooks/useRemote";
 
 // Change-password dialog on the shared <Modal> shell (so its chrome matches the
@@ -15,6 +16,8 @@ export function ChangePasswordModal({ remote, onClose }: { remote: Remote; onClo
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0);
   const firstRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -26,14 +29,18 @@ export function ChangePasswordModal({ remote, onClose }: { remote: Remote; onClo
     setErr(null);
     if (next.length < 8) return setErr("New password must be at least 8 characters.");
     if (next !== confirm) return setErr("New passwords do not match.");
+    if (remote.turnstileSiteKey && !token) return setErr("Please complete the verification.");
     setBusy(true);
-    const r = await remote.changePassword(current, next);
+    const r = await remote.changePassword(current, next, token ?? undefined);
     setBusy(false);
     if (r.ok) {
       setDone(true);
       window.setTimeout(onClose, 1100);
     } else {
       setErr(r.error || "Could not change password.");
+      // Turnstile tokens are single-use: reset for the next attempt.
+      setToken(null);
+      setResetKey((k) => k + 1);
     }
   };
 
@@ -50,6 +57,14 @@ export function ChangePasswordModal({ remote, onClose }: { remote: Remote; onClo
           />
           <Field label="New password" value={next} onChange={setNext} autoComplete="new-password" />
           <Field label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
+          {remote.turnstileSiteKey && (
+            <Turnstile
+              key={resetKey}
+              siteKey={remote.turnstileSiteKey}
+              theme={remote.theme}
+              onToken={setToken}
+            />
+          )}
           {err && <p className="text-xs text-destructive">{err}</p>}
           {done && <p className="text-xs text-success">Password changed.</p>}
         </ModalBody>

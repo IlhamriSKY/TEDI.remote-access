@@ -2,6 +2,29 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.10.0] - 2026-07-03
+
+Needs TEDI >= 0.3.73 for the workspace actions (create / choose target). Resize
+and Turnstile work on any host.
+
+### Added
+
+- **Resizable sidebar.** Drag the sidebar's right edge to set its width (desktop;
+  the width is remembered). The mobile drawer keeps a fixed width.
+- **Choose the workspace for a new terminal or SSH.** With more than one
+  workspace, "New terminal" and "New SSH" now let you pick which workspace to open
+  into (defaults to the topmost). The host switches to that workspace so the new
+  tab lands there.
+- **Create a workspace from the browser.** A "New workspace" action makes a new
+  workspace on your desktop (and opens a terminal in it), which then appears in
+  the sidebar. Both actions require TEDI >= 0.3.73 (older hosts ignore them).
+- **Cloudflare Turnstile (optional).** When you set `TURNSTILE_SITEKEY` and
+  `TURNSTILE_SECRET` in the relay's `.env`, the login and change-password forms
+  show a Turnstile challenge and the relay verifies it server-side before checking
+  the password (a bot gate in front of the credential path). The site key is
+  public; the secret never leaves the relay. A new `server/.env.example`
+  documents every relay variable. Leave the two keys unset to keep it off.
+
 ## [0.9.0] - 2026-07-03
 
 ### Added

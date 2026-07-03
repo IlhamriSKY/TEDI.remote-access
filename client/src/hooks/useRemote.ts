@@ -132,6 +132,9 @@ export function useRemote() {
   const [lineHeight, setLineHeightState] = useState<number>(getInitialLineHeight);
   const [ctrlSticky, setCtrlSticky] = useState(false);
   const [user, setUser] = useState("");
+  // Cloudflare Turnstile site key from the relay (/api/me). Empty = disabled; when
+  // set, the Login + Change-password forms render the widget and send its token.
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState("");
   const [theme, setThemeState] = useState<ThemeName>(getInitialTheme);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   // Per-tab program-set window title (OSC 0/2), e.g. a running agent's task, keyed
@@ -647,13 +650,18 @@ export function useRemote() {
 
   // --- auth ---------------------------------------------------------------
   const login = useCallback(
-    async (user: string, pass: string, otp: string): Promise<{ ok: boolean; error?: string }> => {
+    async (
+      user: string,
+      pass: string,
+      otp: string,
+      turnstile?: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
       try {
         const r = await fetch("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ user, pass, otp }),
+          body: JSON.stringify({ user, pass, otp, turnstile }),
         });
         if (r.ok) {
           setUser(user);
@@ -683,13 +691,17 @@ export function useRemote() {
   }, []);
 
   const changePassword = useCallback(
-    async (current: string, next: string): Promise<{ ok: boolean; error?: string }> => {
+    async (
+      current: string,
+      next: string,
+      turnstile?: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
       try {
         const r = await fetch("/api/change-password", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ current, new: next }),
+          body: JSON.stringify({ current, new: next, turnstile }),
         });
         if (r.ok) return { ok: true };
         const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -713,6 +725,7 @@ export function useRemote() {
       connectionId: string,
       pass: string,
       otp?: string,
+      wsId?: string,
     ): Promise<{ ok: boolean; error?: string }> => {
       // Snapshot existing ids so the new SSH tab auto-focuses when it appears.
       pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
@@ -725,7 +738,9 @@ export function useRemote() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ connectionId, pass, otp }),
+          // `wsId` (optional): the relay forwards it so the host switches to that
+          // workspace before opening, placing the SSH tab there.
+          body: JSON.stringify({ connectionId, pass, otp, ...(wsId ? { wsId } : {}) }),
         });
         if (r.ok) return { ok: true };
         pendingNewIds.current = null;
@@ -756,9 +771,16 @@ export function useRemote() {
     (async () => {
       try {
         const r = await fetch("/api/me", { credentials: "same-origin" });
+        // Public login config (totp + turnstile site key) comes back on 200 AND
+        // 401, so the Login screen can render the widget / OTP field pre-auth.
+        const j = (await r.json().catch(() => ({}))) as {
+          totp?: boolean;
+          user?: string;
+          turnstile?: string;
+        };
+        setTotpRequired(!!j.totp);
+        if (j.turnstile) setTurnstileSiteKey(j.turnstile);
         if (r.ok) {
-          const j = (await r.json()) as { totp?: boolean; user?: string };
-          setTotpRequired(!!j.totp);
           if (j.user) setUser(j.user);
           setAuthed(true);
           connect();
@@ -882,18 +904,39 @@ export function useRemote() {
   // the active terminal so it fills the view; the host spawns a fresh PTY and
   // the new tab streams in within ~2s. Snapshot current ids so we can focus the
   // newcomer when it appears (cleared after 5s so a no-op never mis-selects).
-  const newTerminal = useCallback(() => {
-    const id = activeIdRef.current;
-    const e = id ? terms.current.get(id) : null;
-    const cols = e?.term.cols ?? 80;
-    const rows = e?.term.rows ?? 24;
-    pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
-    if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
-    pendingNewTimer.current = window.setTimeout(() => {
-      pendingNewIds.current = null;
-    }, 5000);
-    send({ t: "open", cols, rows });
-  }, [send]);
+  const newTerminal = useCallback(
+    (wsId?: string) => {
+      const id = activeIdRef.current;
+      const e = id ? terms.current.get(id) : null;
+      const cols = e?.term.cols ?? 80;
+      const rows = e?.term.rows ?? 24;
+      pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
+      if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
+      pendingNewTimer.current = window.setTimeout(() => {
+        pendingNewIds.current = null;
+      }, 8000);
+      // `wsId` (optional) asks the host extension to switch the desktop to that
+      // workspace first, so the new terminal is adopted into it. The native agent
+      // ignores the field and just spawns.
+      send({ t: "open", cols, rows, ...(wsId ? { wsId } : {}) });
+    },
+    [send],
+  );
+
+  // Ask the host to create a NEW workspace (it switches to it on the desktop,
+  // which auto-opens a default terminal). The new workspace + its terminal stream
+  // in via the next tabmeta/sessions frames; snapshot ids so it auto-focuses.
+  const createRemoteWorkspace = useCallback(
+    (name: string) => {
+      pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
+      if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
+      pendingNewTimer.current = window.setTimeout(() => {
+        pendingNewIds.current = null;
+      }, 8000);
+      send({ t: "ws-create", name });
+    },
+    [send],
+  );
 
   // Permanently close (kill) a tab. The host kills the daemon PTY (or the SSH
   // bridge runs ssh_close), which closes it in the desktop app too; the
@@ -969,11 +1012,13 @@ export function useRemote() {
     sendInput,
     sendToActive,
     newTerminal,
+    createRemoteWorkspace,
     closeTerminal,
     reorderTabs,
     ctrlSticky,
     setCtrlSticky,
     user,
+    turnstileSiteKey,
     theme,
     setTheme,
     toggleTheme,

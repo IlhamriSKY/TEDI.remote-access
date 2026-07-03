@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import {
@@ -12,10 +12,13 @@ import {
 } from "@/lib/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { NewSshModal } from "@/components/NewSshModal";
+import { NewTerminalModal } from "@/components/NewTerminalModal";
+import { NewWorkspaceModal } from "@/components/NewWorkspaceModal";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -44,6 +47,12 @@ function folderName(s: SessionMeta): string {
 
 const WS_OTHER = "__other__";
 
+// Sidebar width is drag-resizable on desktop (persisted); the mobile drawer keeps
+// a fixed width.
+const SIDEBAR_W_KEY = "tedi-remote-sidebar-w";
+const DEFAULT_SIDEBAR_W = 240;
+const clampSidebarWidth = (n: number) => Math.min(480, Math.max(180, n || DEFAULT_SIDEBAR_W));
+
 type Group = { id: string; name: string; tabs: SessionMeta[] };
 
 export function Sidebar({
@@ -58,7 +67,41 @@ export function Sidebar({
   const { sessions, workspaces, wsById, activeId } = remote;
   const [pendingClose, setPendingClose] = useState<SessionMeta | null>(null);
   const [sshOpen, setSshOpen] = useState(false);
+  const [newTermOpen, setNewTermOpen] = useState(false);
+  const [newWsOpen, setNewWsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [width, setWidth] = useState(() => {
+    try {
+      return clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_W_KEY)));
+    } catch {
+      return DEFAULT_SIDEBAR_W;
+    }
+  });
+  const widthRef = useRef(width);
+  useEffect(() => {
+    widthRef.current = width;
+  }, [width]);
+  // Drag the right edge to resize (desktop). Tracked on window so the drag keeps
+  // working past the 1px handle; persisted on release.
+  const startResize = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = widthRef.current;
+    const onMove = (ev: PointerEvent) => setWidth(clampSidebarWidth(startW + (ev.clientX - startX)));
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+      try {
+        localStorage.setItem(SIDEBAR_W_KEY, String(widthRef.current));
+      } catch {
+        /* ignore */
+      }
+    };
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
 
   // Group sessions by workspace: workspaces in their host order, tabs in the
   // browser's (drag-preserved) session order. Sessions without workspace
@@ -104,12 +147,22 @@ export function Sidebar({
       )}
       <aside
         aria-label="Workspaces and terminals"
+        style={{ width }}
         className={cn(
-          "bg-sidebar border-border z-40 w-72 max-w-[85%] shrink-0 flex-col border-r md:w-60 md:max-w-none",
-          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:shadow-xl",
+          "bg-sidebar border-border relative z-40 shrink-0 flex-col border-r",
+          // Mobile drawer: fixed width (!w-72 beats the inline style), overlaid.
+          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:!w-72 max-md:max-w-[85%] max-md:shadow-xl",
           open ? "flex" : "hidden",
         )}
       >
+        <div
+          onPointerDown={startResize}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          title="Drag to resize"
+          className="hover:bg-primary/40 absolute inset-y-0 right-0 z-20 hidden w-1 cursor-col-resize transition-colors md:block"
+        />
         <div className="border-border flex h-9 shrink-0 items-center gap-1 border-b px-2">
           <span className="text-muted-foreground flex-1 truncate pl-1 text-[11px] font-semibold tracking-wide uppercase">
             Workspaces
@@ -125,13 +178,22 @@ export function Sidebar({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44">
-              <DropdownMenuItem onSelect={() => remote.newTerminal()}>
+              <DropdownMenuItem
+                onSelect={() =>
+                  remote.workspaces.length > 1 ? setNewTermOpen(true) : remote.newTerminal()
+                }
+              >
                 <HugeiconsIcon icon={IconTerminal} size={14} strokeWidth={1.8} />
                 New terminal
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setSshOpen(true)}>
                 <HugeiconsIcon icon={IconSsh} size={14} strokeWidth={1.8} />
                 New SSH…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setNewWsOpen(true)}>
+                <HugeiconsIcon icon={IconFolder} size={14} strokeWidth={1.8} />
+                New workspace…
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -160,6 +222,8 @@ export function Sidebar({
       </aside>
 
       {sshOpen && <NewSshModal remote={remote} onClose={() => setSshOpen(false)} />}
+      {newTermOpen && <NewTerminalModal remote={remote} onClose={() => setNewTermOpen(false)} />}
+      {newWsOpen && <NewWorkspaceModal remote={remote} onClose={() => setNewWsOpen(false)} />}
       {pendingClose && (
         <ConfirmModal
           title="Close terminal"

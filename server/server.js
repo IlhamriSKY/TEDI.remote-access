@@ -41,6 +41,12 @@ const LOGIN_PASS = process.env.LOGIN_PASS || "";
 const SESSION_SECRET = process.env.SESSION_SECRET || "";
 const TOTP_SECRET = process.env.TOTP_SECRET || "";
 const TRUST_PROXY = process.env.TRUST_PROXY === "1";
+// Cloudflare Turnstile (bot gate on login + change-password). Enabled only when
+// BOTH the public site key and the secret are set. The site key is public and is
+// handed to the browser via /api/me; the secret never leaves the server.
+const TURNSTILE_SITEKEY = process.env.TURNSTILE_SITEKEY || "";
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET || "";
+const TURNSTILE_ON = !!(TURNSTILE_SITEKEY && TURNSTILE_SECRET);
 // When set (e.g. https://remote.example.com), the browser WS upgrade must carry
 // a matching Origin header. This is defense-in-depth against cross-site WS
 // hijacking on top of the SameSite=Strict session cookie; leave empty to skip
@@ -53,6 +59,22 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY = 1 << 16;
 const MAX_CLIENTS = 50; // browser WS cap (guards the client_join scrollback-replay amplification)
 const MAX_AGENT_SOURCES = 4; // native PTY agent + SSH bridge; a handful is plenty
+
+// CSP for the SPA shell. Turnstile (when enabled) needs its script + iframe +
+// connect to challenges.cloudflare.com; otherwise the policy stays strict.
+const TURNSTILE_HOST = "https://challenges.cloudflare.com";
+const CSP = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${TURNSTILE_ON ? " " + TURNSTILE_HOST : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  `connect-src 'self'${TURNSTILE_ON ? " " + TURNSTILE_HOST : ""}`,
+  ...(TURNSTILE_ON ? [`frame-src ${TURNSTILE_HOST}`] : []),
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+].join("; ");
 
 // Login password hash. Starts from LOGIN_PASS_HASH (env); if the user changes it
 // from the web UI we persist the new hash to PASS_FILE next to server.js, which
@@ -189,6 +211,31 @@ function verifyTotp(code) {
   return -1;
 }
 
+// Cloudflare Turnstile server-side check. Returns true when disabled, or when the
+// client's token verifies. When ENABLED it fails CLOSED (a missing token or a
+// siteverify error rejects) so the gate can't be bypassed by dropping the field
+// or knocking out the siteverify endpoint.
+async function verifyTurnstile(token, ip) {
+  if (!TURNSTILE_ON) return true;
+  if (!token || typeof token !== "string") return false;
+  try {
+    const form = new URLSearchParams();
+    form.set("secret", TURNSTILE_SECRET);
+    form.set("response", token);
+    if (ip && ip !== "?") form.set("remoteip", ip);
+    const r = await fetch(`${TURNSTILE_HOST}/turnstile/v0/siteverify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
+      signal: AbortSignal.timeout(8000),
+    });
+    const j = await r.json().catch(() => ({}));
+    return !!(j && j.success === true);
+  } catch {
+    return false;
+  }
+}
+
 // ----------------------------- rate limiting ----------------------------------
 
 const loginFails = new Map(); // ip -> { n, until }
@@ -268,12 +315,7 @@ function sendFile(res, filePath, buf) {
     res.setHeader("Cache-Control", "no-cache");
     // Defense-in-depth for the xterm renderer. The SPA uses an inline no-FOUC
     // theme script + inline styles, so script/style need 'unsafe-inline'.
-    res.setHeader(
-      "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-        "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; " +
-        "base-uri 'none'; form-action 'self'",
-    );
+    res.setHeader("Content-Security-Policy", CSP);
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
   }
@@ -341,9 +383,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (p === "/api/me") {
+    // Public login config (TOTP + Turnstile site key) rides on this endpoint even
+    // when signed out, so the Login screen can render the widget / OTP field.
+    const cfg = { totp: !!TOTP_SECRET, turnstile: TURNSTILE_SITEKEY || undefined };
     const sess = verifySession(getCookie(req, COOKIE_NAME));
-    if (!sess) return json(res, 401, { ok: false });
-    return json(res, 200, { ok: true, user: sess.u, totp: !!TOTP_SECRET });
+    if (!sess) return json(res, 401, { ok: false, ...cfg });
+    return json(res, 200, { ok: true, user: sess.u, ...cfg });
   }
 
   if (p === "/api/login") {
@@ -355,6 +400,11 @@ const server = http.createServer(async (req, res) => {
       body = JSON.parse(await readBody(req));
     } catch {
       /* invalid json -> treated as bad creds below */
+    }
+    // Bot gate first: it protects the scrypt/credential path from spam and is not
+    // a credential attempt, so it doesn't burn the login rate-limit budget.
+    if (!(await verifyTurnstile(body.turnstile, ip))) {
+      return json(res, 403, { ok: false, error: "verification failed" });
     }
     // Evaluate all three factors unconditionally before combining, so a wrong
     // username can't short-circuit the expensive scrypt and leak via timing.
@@ -392,6 +442,9 @@ const server = http.createServer(async (req, res) => {
       body = JSON.parse(await readBody(req));
     } catch {
       /* invalid json -> bad current password below */
+    }
+    if (!(await verifyTurnstile(body.turnstile, ip))) {
+      return json(res, 403, { ok: false, error: "verification failed" });
     }
     const current = String(body.current || "");
     const next = String(body.new || "");
@@ -449,7 +502,12 @@ const server = http.createServer(async (req, res) => {
     loginFails.delete(ip);
     // Forward to the host agent(s). The native PTY agent ignores it; the SSH
     // bridge opens the saved connection by id (keychain creds read host-side).
-    const frame = JSON.stringify({ t: "open-ssh", connectionId });
+    // Forward an optional target workspace so the host opens the SSH tab there.
+    const frame = JSON.stringify({
+      t: "open-ssh",
+      connectionId,
+      ...(typeof body.wsId === "string" && body.wsId ? { wsId: body.wsId } : {}),
+    });
     let delivered = 0;
     for (const a of agents) {
       if (a.readyState === 1) {

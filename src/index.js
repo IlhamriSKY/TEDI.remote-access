@@ -372,6 +372,16 @@ function sshSend(obj) {
   }
 }
 
+// Ask the host to switch the active desktop workspace so a terminal/SSH opened
+// next is adopted into it. No-op without a wsId or on a TEDI core that predates
+// ctx.app.setActiveWorkspace. Always resolves (never rejects).
+function maybeSwitchWorkspace(ctx, wsId) {
+  if (wsId && ctx.app && typeof ctx.app.setActiveWorkspace === "function") {
+    return Promise.resolve(ctx.app.setActiveWorkspace(wsId)).catch(() => {});
+  }
+  return Promise.resolve();
+}
+
 // Push the desktop tab numbers to the browser (no-op until the relay WS is up).
 function sendTabMeta() {
   sshSend({ t: "tabmeta", items: tabMeta });
@@ -571,6 +581,20 @@ function onSshEvent(rid, e) {
 
 function handleSshRelayFrame(ctx, m) {
   if (!m || typeof m.t !== "string") return;
+  // Workspace targeting. The browser can ask the desktop to switch to (or create)
+  // a workspace so a terminal/SSH it opens next is adopted there. The native agent
+  // does the actual terminal spawn on {t:"open"}; here we only move/create the
+  // workspace. No-ops on a core without the ctx.app workspace API.
+  if (m.t === "open") {
+    maybeSwitchWorkspace(ctx, m.wsId);
+    return;
+  }
+  if (m.t === "ws-create") {
+    if (ctx.app && typeof ctx.app.createWorkspace === "function") {
+      ctx.app.createWorkspace(typeof m.name === "string" ? m.name : "").catch(() => {});
+    }
+    return;
+  }
   if (m.t === "input" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
     const id = parseInt(m.id.slice(4), 10);
     // Only act on sessions THIS bridge actually mirrors. The relay broadcasts
@@ -634,18 +658,22 @@ function handleSshRelayFrame(ctx, m) {
     // password / key are read host-side from the keychain and never seen here.
     const id = typeof m.connectionId === "string" ? m.connectionId : "";
     if (id && ctx.ssh && typeof ctx.ssh.openConnection === "function") {
-      ctx.ssh
-        .openConnection(id)
-        .then((r) => {
-          if (!r || !r.ok) {
-            ctx.logger.warn("open-ssh refused", r && r.error);
-            ctx.ui.toast("Remote SSH: " + ((r && r.error) || "could not open"), {
-              variant: "error",
-            });
-          }
-          // On success the new SSH tab streams in via the next pollSsh.
-        })
-        .catch((e) => ctx.logger.warn("open-ssh error", e));
+      // Switch to the requested workspace FIRST (if any) so the SSH tab opens
+      // there, then open it. The relay forwards m.wsId from POST /api/open-ssh.
+      maybeSwitchWorkspace(ctx, m.wsId).then(() => {
+        ctx.ssh
+          .openConnection(id)
+          .then((r) => {
+            if (!r || !r.ok) {
+              ctx.logger.warn("open-ssh refused", r && r.error);
+              ctx.ui.toast("Remote SSH: " + ((r && r.error) || "could not open"), {
+                variant: "error",
+              });
+            }
+            // On success the new SSH tab streams in via the next pollSsh.
+          })
+          .catch((e) => ctx.logger.warn("open-ssh error", e));
+      });
     }
   } else if (m.t === "ping") {
     sshSend({ t: "pong" });

@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 
 import { IconLock } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
+import { Turnstile } from "@/components/Turnstile";
 import type { Remote } from "@/hooks/useRemote";
 
 const FIELD =
@@ -14,14 +15,25 @@ export function Login({ remote }: { remote: Remote }) {
   const [otp, setOtp] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setErr("");
+    if (remote.turnstileSiteKey && !token) {
+      setErr("Please complete the verification.");
+      return;
+    }
     setBusy(true);
-    const r = await remote.login(user.trim(), pass, otp.trim());
+    const r = await remote.login(user.trim(), pass, otp.trim(), token ?? undefined);
     setBusy(false);
-    if (!r.ok) setErr(r.error || "Sign in failed");
+    if (!r.ok) {
+      setErr(r.error || "Sign in failed");
+      // Turnstile tokens are single-use: get a fresh one for the next attempt.
+      setToken(null);
+      setResetKey((k) => k + 1);
+    }
   }
 
   return (
@@ -64,6 +76,17 @@ export function Login({ remote }: { remote: Remote }) {
             </Field>
           )}
         </div>
+
+        {remote.turnstileSiteKey && (
+          <div className="mt-4">
+            <Turnstile
+              key={resetKey}
+              siteKey={remote.turnstileSiteKey}
+              theme={remote.theme}
+              onToken={setToken}
+            />
+          </div>
+        )}
 
         {err && <p className="mt-3 text-xs text-destructive">{err}</p>}
 

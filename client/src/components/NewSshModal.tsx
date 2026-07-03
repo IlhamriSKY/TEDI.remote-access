@@ -12,7 +12,9 @@ import type { Remote } from "@/hooks/useRemote";
 // credentials are read from the host's keychain and never touch the browser.
 export function NewSshModal({ remote, onClose }: { remote: Remote; onClose: () => void }) {
   const conns = remote.sshConns;
+  const wss = remote.workspaces;
   const [id, setId] = useState(conns[0]?.id ?? "");
+  const [wsId, setWsId] = useState(wss[0]?.id ?? "");
   const [pass, setPass] = useState("");
   const [otp, setOtp] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -26,6 +28,9 @@ export function NewSshModal({ remote, onClose }: { remote: Remote; onClose: () =
   useEffect(() => {
     if (conns.length && !conns.some((c) => c.id === id)) setId(conns[0].id);
   }, [conns, id]);
+  useEffect(() => {
+    if (wss.length && !wss.some((w) => w.id === wsId)) setWsId(wss[0].id);
+  }, [wss, wsId]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -33,7 +38,7 @@ export function NewSshModal({ remote, onClose }: { remote: Remote; onClose: () =
     if (!id) return setErr("Pick a saved host.");
     if (!pass) return setErr("Enter your login password.");
     setBusy(true);
-    const r = await remote.openSshConnection(id, pass, otp || undefined);
+    const r = await remote.openSshConnection(id, pass, otp || undefined, wsId || undefined);
     setBusy(false);
     if (r.ok) onClose();
     else setErr(r.error || "Could not open SSH.");
@@ -50,6 +55,17 @@ export function NewSshModal({ remote, onClose }: { remote: Remote; onClose: () =
             </p>
           ) : (
             <>
+              {wss.length > 1 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-muted-foreground text-xs">Workspace</span>
+                  <Select
+                    aria-label="Workspace"
+                    value={wsId}
+                    onChange={setWsId}
+                    options={wss.map((w) => ({ value: w.id, label: w.name || "Workspace" }))}
+                  />
+                </div>
+              )}
               <div className="flex flex-col gap-1">
                 <span className="text-muted-foreground text-xs">Host</span>
                 <Select
