@@ -19,4 +19,11 @@ export {
   Sun01Icon as IconSun,
   Moon02Icon as IconMoon,
   Settings02Icon as IconSettings,
+  // Sidebar (workspaces + tabs) + the unified Select dropdown.
+  Folder01Icon as IconFolder,
+  SidebarLeft01Icon as IconSidebar,
+  ArrowDown01Icon as IconChevronDown,
+  ArrowRight01Icon as IconChevronRight,
+  Search01Icon as IconSearch,
+  Tick02Icon as IconCheck,
 } from "@hugeicons/core-free-icons";

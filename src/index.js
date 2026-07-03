@@ -130,6 +130,7 @@ async function reapOrphanAgents(ctx) {
     return; // shell_bg_list not granted on this build -> best-effort
   }
   if (!Array.isArray(procs)) return;
+  const killed = [];
   for (const p of procs) {
     if (
       p &&
@@ -138,12 +139,30 @@ async function reapOrphanAgents(ctx) {
       p.command.includes("tedi-remote-agent")
     ) {
       await ctx.invoke("shell_bg_kill", { handle: p.handle }).catch(() => {});
+      killed.push(p.handle);
       try {
         ctx.logger.info("reaped orphaned remote-access agent (handle " + p.handle + ")");
       } catch {
         /* logger optional */
       }
     }
+  }
+  // Wait (bounded) for the killed agents to actually exit before the caller
+  // spawns a fresh one. shell_bg_kill only requests the kill; if we spawn while
+  // an orphan is still alive, BOTH attach to the relay and every keystroke is
+  // written to the PTY twice ('c' -> 'cc'). Poll until they're gone (or ~2s).
+  const deadline = Date.now() + 2000;
+  while (killed.length && Date.now() < deadline) {
+    let list;
+    try {
+      list = await ctx.invoke("shell_bg_list");
+    } catch {
+      break;
+    }
+    if (!Array.isArray(list)) break;
+    const alive = new Set(list.filter((p) => p && !p.exited).map((p) => p.handle));
+    if (!killed.some((h) => alive.has(h))) break; // every reaped agent has exited
+    await sleep(120);
   }
 }
 
@@ -321,6 +340,7 @@ function scheduleRestart() {
 
 let sshWs = null;
 let sshAttached = new Set(); // numeric ssh session ids we've attached
+let sshChannels = new Map(); // ssh session id -> ssh_attach channel disposer
 let sshPollTimer = null;
 let sshReconnectTimer = null;
 let sshStop = false;
@@ -394,13 +414,40 @@ function stopSshBridge() {
   }
   if (sshWs) {
     try {
+      // Detach handlers before closing so this socket's async onclose can never
+      // re-enter the reconnect path after a restart flips sshStop back to false.
+      sshWs.onclose = null;
+      sshWs.onerror = null;
       sshWs.close();
     } catch {
       /* ignore */
     }
     sshWs = null;
   }
+  // Tear down every ssh_attach channel so a restart can't stack a second data
+  // sink per session (which would double every SSH byte to the browser).
+  for (const dispose of sshChannels.values()) {
+    try {
+      dispose();
+    } catch {
+      /* ignore */
+    }
+  }
+  sshChannels.clear();
   sshAttached = new Set();
+}
+
+// Tear down the ssh_attach channel for one session (session gone or closed).
+function disposeSshChannel(id) {
+  const dispose = sshChannels.get(id);
+  if (dispose) {
+    try {
+      dispose();
+    } catch {
+      /* ignore */
+    }
+    sshChannels.delete(id);
+  }
 }
 
 async function connectSshRelay(ctx, relayUrl, token) {
@@ -451,7 +498,12 @@ async function connectSshRelay(ctx, relayUrl, token) {
       clearInterval(sshPollTimer);
       sshPollTimer = null;
     }
-    if (sshStop) return;
+    // Only the CURRENT socket may schedule a reconnect. `sshStop` is a shared
+    // boolean that a restart flips back to false before this async onclose fires,
+    // so without the identity guard a stale socket's onclose would spawn a SECOND
+    // concurrent bridge on top of the fresh one; those pile up per restart and
+    // saturate the webview thread until TEDI's own UI hangs.
+    if (sshStop || ws !== sshWs) return;
     sshReconnectTimer = setTimeout(() => connectSshRelay(ctx, relayUrl, token), 3000);
   };
   ws.onerror = () => {
@@ -472,7 +524,11 @@ async function pollSsh(ctx) {
   }
   if (!Array.isArray(list)) return;
   const liveIds = new Set(list.map((s) => s.id));
-  for (const id of [...sshAttached]) if (!liveIds.has(id)) sshAttached.delete(id);
+  for (const id of [...sshAttached])
+    if (!liveIds.has(id)) {
+      sshAttached.delete(id);
+      disposeSshChannel(id);
+    }
   for (const s of list) {
     if (!s.alive || sshAttached.has(s.id)) continue;
     sshAttached.add(s.id);
@@ -480,7 +536,11 @@ async function pollSsh(ctx) {
     // Announce the tab + reset its terminal before data flows.
     sshSend({ t: "attached", id: rid, scrollback: "", cols: s.cols, rows: s.rows, alive: true });
     try {
-      await ctx.invokeChannel("ssh_attach", { id: s.id }, (e) => onSshEvent(rid, e));
+      // Keep the channel disposer so we can detach this exact sink on
+      // session-gone / close / bridge restart (else restarts stack duplicate
+      // sinks that double every SSH byte to the browser).
+      const dispose = await ctx.invokeChannel("ssh_attach", { id: s.id }, (e) => onSshEvent(rid, e));
+      if (typeof dispose === "function") sshChannels.set(s.id, dispose);
     } catch (err) {
       sshAttached.delete(s.id);
       ctx.logger.warn("ssh_attach failed", err);
@@ -537,6 +597,7 @@ function handleSshRelayFrame(ctx, m) {
       }
       if (!closedTab) ctx.invoke("ssh_close", { id }).catch(() => {});
       sshAttached.delete(id);
+      disposeSshChannel(id);
       // Tell the browser the tab is dead now (the next pollSsh authoritatively
       // drops it from the published list).
       sshSend({ t: "exit", id: m.id, code: 0 });

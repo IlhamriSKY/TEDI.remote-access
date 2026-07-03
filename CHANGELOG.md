@@ -2,6 +2,53 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.9.0] - 2026-07-03
+
+### Added
+
+- **Sidebar with workspaces and their tabs.** The browser now shows a left
+  sidebar listing every workspace and, under each, its open terminal and SSH
+  tabs, mirroring the desktop TEDI Workspaces panel instead of a flat horizontal
+  strip. Each tab reads "folder . title": the folder name plus the running
+  program's window title (for example a running agent's task), taken from the
+  terminal's OSC title in the mirrored stream so it matches the desktop with no
+  host change. Collapse or expand a workspace, switch workspaces, open a new
+  terminal or SSH from the sidebar header, and close a tab (with confirmation).
+  On a phone the sidebar is an overlay drawer toggled from the header.
+- **Searchable, consistent dropdowns.** "New SSH connection" now uses a styled,
+  type-to-search host picker instead of a native select, and the Settings font
+  picker uses the same component, so every dropdown looks and behaves the same
+  (bordered popover, keyboard navigation, matching the menus and tooltips).
+
+### Fixed
+
+- **Garbled or stuck-color terminal output on a flaky link.** Three causes are
+  addressed: (1) the browser no longer resets and repaints a live full-screen
+  program (like Claude) every time the relay reconnects or another browser joins,
+  which was corrupting it into broken, colored output; (2) the reconnect backoff
+  on both the browser and the agent no longer resets the instant a connection
+  opens, so a connection that drops immediately backs off instead of hammering
+  the relay about once a second; (3) the agent re-sends a session's scrollback
+  when a data frame was dropped under network backpressure, so a mid-stream gap
+  self-heals instead of leaving the terminal parser desynced.
+- **Browser terminal freezing with no reconnect.** The browser now detects a
+  half-open connection (nothing received while the host is online) and forces a
+  reconnect, instead of silently swallowing keystrokes into a dead socket.
+- **TEDI desktop hang during remote access.** The SSH-mirror bridge could stack
+  duplicate relay connections on each internal restart (a stale socket's close
+  handler reconnected on top of the fresh one), piling work on the app's UI
+  thread until it froze. The bridge now reconnects only the current socket, drops
+  its handlers on stop, and disposes each SSH data channel so restarts cannot
+  leak or double them.
+- **Big output bursts dropping every browser.** The relay's per-message limit for
+  the agent connection was below the largest frame the host can send, so a single
+  large redraw or file dump closed the agent and blanked every browser. The limit
+  now matches the host, and a browser that cannot keep up is shed rather than
+  letting the relay buffer without bound.
+- **Doubled typing after a reload.** Reaping a leftover agent now waits for it to
+  actually exit before starting a new one, so a keystroke is never briefly
+  written to the terminal twice.
+
 ## [0.8.10] - 2026-06-20
 
 - **Fixed doubled typing from the browser (a key showing as "cc" or "ccc").** On

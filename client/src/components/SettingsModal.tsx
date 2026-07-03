@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
+import { Select } from "@/components/ui/select";
 import { FONT_FAMILIES, LINE_SPACINGS, type FontFamilyId } from "@/lib/protocol";
 import { cn } from "@/lib/utils";
 import type { Remote } from "@/hooks/useRemote";
@@ -16,17 +17,14 @@ export function SettingsModal({ remote, onClose }: { remote: Remote; onClose: ()
       <ModalBody className="gap-0 p-0">
         <Section title="Terminal" last>
           <Row label="Font">
-            <select
+            <Select
+              aria-label="Terminal font"
+              size="sm"
+              className="w-44"
               value={remote.fontFamily}
-              onChange={(e) => remote.setFontFamily(e.target.value as FontFamilyId)}
-              className="h-8 w-44 border border-input bg-background px-2 text-xs text-foreground outline-none transition-colors focus:border-ring"
-            >
-              {FONT_FAMILIES.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => remote.setFontFamily(v as FontFamilyId)}
+              options={FONT_FAMILIES.map((f) => ({ value: f.id, label: f.label }))}
+            />
           </Row>
 
           <Row label="Text size" hint="Size of the terminal text.">

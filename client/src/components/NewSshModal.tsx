@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
+import { Select } from "@/components/ui/select";
 import type { Remote } from "@/hooks/useRemote";
 
 // "New SSH" dialog. You pick a SAVED host (only ones already verified/pinned on
@@ -49,20 +50,21 @@ export function NewSshModal({ remote, onClose }: { remote: Remote; onClose: () =
             </p>
           ) : (
             <>
-              <label className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1">
                 <span className="text-muted-foreground text-xs">Host</span>
-                <select
+                <Select
+                  aria-label="Saved SSH host"
+                  searchable
                   value={id}
-                  onChange={(e) => setId(e.target.value)}
-                  className="border-input bg-background text-foreground focus:border-ring h-9 border px-2 text-sm transition-colors outline-none"
-                >
-                  {conns.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.user}@{c.host}:{c.port})
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={setId}
+                  placeholder="Select a saved host…"
+                  options={conns.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                    hint: `${c.user}@${c.host}:${c.port}`,
+                  }))}
+                />
+              </div>
               <label className="flex flex-col gap-1">
                 <span className="text-muted-foreground text-xs">
                   Your login password

@@ -493,8 +493,18 @@ const server = http.createServer(async (req, res) => {
 
 // ----------------------------- websocket --------------------------------------
 
-const wssAgent = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
+// A single PTY flush the host daemon forwards can be base64(4 MiB pending) ~= 5.3
+// MiB, and the daemon's own frame cap is 16 MiB. A 2 MiB agent maxPayload tripped
+// ws's limit on a big burst (cat a large file, a full-screen redraw) and CLOSED
+// the agent with 1009, blanking every browser. Match the daemon cap so a large
+// single frame is relayed, not fatal.
+const wssAgent = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
 const wssClient = new WebSocketServer({ noServer: true, maxPayload: 1 * 1024 * 1024 });
+// Shed a browser whose send buffer runs away (a slow/flaky link that can't drain
+// a busy terminal). Left unbounded, ws queues every frame in that socket and the
+// relay's RSS climbs until GC stalls the whole event loop, which also starves the
+// agent read. Dropping the one laggard is better than wedging everyone.
+const MAX_CLIENT_BUFFER = 8 * 1024 * 1024;
 
 // Multiple agent SOURCES can connect: the native PTY agent and the webview SSH
 // bridge. Sessions from every source are merged for browsers; browser input is
@@ -508,12 +518,22 @@ let lastClientJoin = 0;
 
 function broadcastClients(text) {
   for (const c of clients) {
-    if (c.readyState === 1) {
+    if (c.readyState !== 1) continue;
+    // Slow-consumer guard: if this browser can't keep up, terminate it rather
+    // than letting its send buffer grow without bound (see MAX_CLIENT_BUFFER).
+    // Its 'close' handler removes it from `clients`.
+    if (c.bufferedAmount > MAX_CLIENT_BUFFER) {
       try {
-        c.send(text);
+        c.terminate();
       } catch {
-        /* drop */
+        /* ignore */
       }
+      continue;
+    }
+    try {
+      c.send(text);
+    } catch {
+      /* drop */
     }
   }
 }

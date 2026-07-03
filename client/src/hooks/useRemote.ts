@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 
 import { b64ToBytes, strToB64 } from "@/lib/b64";
+import { stripLeadingStatusGlyph } from "@/lib/termTitle";
 import {
   DEFAULT_FONT_FAMILY,
   DEFAULT_LINE_HEIGHT,
@@ -133,6 +134,11 @@ export function useRemote() {
   const [user, setUser] = useState("");
   const [theme, setThemeState] = useState<ThemeName>(getInitialTheme);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  // Per-tab program-set window title (OSC 0/2), e.g. a running agent's task, keyed
+  // by session id. The sidebar shows it next to the folder name ("folder · title")
+  // to match the desktop Workspaces panel. Captured via xterm `onTitleChange` from
+  // the mirrored stream, so no host change is needed.
+  const [titles, setTitles] = useState<Record<string, string>>({});
   // Per-tab AI-CLI state mirrored from the desktop (keyed by session id). This is
   // the authoritative working indicator: it covers EVERY tab (not just the one
   // in view) and works on Windows, where the shell emits no OSC 133 C for the
@@ -173,6 +179,20 @@ export function useRemote() {
   const pendingNewIds = useRef<Set<string> | null>(null);
   const pendingNewTimer = useRef<number | null>(null);
   const fitRef = useRef(fit);
+  // Reset the reconnect backoff only after a connection has proven stable (armed
+  // in onopen, cleared in onclose); a socket that opens-then-instantly-drops
+  // keeps backing off instead of hammering the relay ~1x/second.
+  const stableTimer = useRef<number | null>(null);
+  // Server-liveness: timestamp of the last inbound frame (incl. pong). If the
+  // host is online but nothing arrives for a while, the socket is half-open —
+  // force a reconnect instead of silently swallowing keystrokes.
+  const lastRecv = useRef(0);
+  const hostOnlineRef = useRef(false);
+  // Session ids whose initial scrollback has already been painted. A re-`attached`
+  // (on reconnect / client_join) for a live alt-screen TUI must NOT reset+replay
+  // the ring — that garbles a running full-screen program (Claude) into corrupt
+  // output; the live `data` stream already keeps it current.
+  const attachedOnce = useRef<Set<string>>(new Set());
 
   const send = useCallback((obj: unknown) => {
     const ws = wsRef.current;
@@ -263,6 +283,25 @@ export function useRemote() {
       } catch {
         /* OSC handler unsupported -> no running indicator for this term */
       }
+      // Program-set window title (OSC 0/2). A running agent (Claude Code, …) or a
+      // TUI sets it; mirror it into `titles` (strip the leading spinner glyph) so
+      // the sidebar reads "folder · title" like the desktop Workspaces panel.
+      try {
+        term.onTitleChange((raw) => {
+          const t = stripLeadingStatusGlyph((raw || "").trim());
+          setTitles((prev) => {
+            if (!t) {
+              if (!(id in prev)) return prev;
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            }
+            return prev[id] === t ? prev : { ...prev, [id]: t };
+          });
+        });
+      } catch {
+        /* onTitleChange unsupported -> no title for this term */
+      }
       term_open(term, el);
       term.onData((data) => {
         let out = data;
@@ -292,6 +331,7 @@ export function useRemote() {
       terms.current.delete(id);
     }
     pending.current.delete(id);
+    attachedOnce.current.delete(id);
     const t = idleTimers.current.get(id);
     if (t) {
       window.clearTimeout(t);
@@ -304,6 +344,12 @@ export function useRemote() {
         return next;
       });
     }
+    setTitles((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }, []);
 
   const focusActive = useCallback(() => {
@@ -393,11 +439,23 @@ export function useRemote() {
             /* ignore */
           }
         }
-        entry.term.reset();
-        if (bytes.length) entry.term.write(bytes);
+        // The agent re-sends `attached` for a live session on every relay
+        // (re)connect and every client_join. Repainting from the ring is only
+        // safe on the FIRST attach or for a normal-screen shell; for a live
+        // full-screen TUI (alt-screen, e.g. Claude) a reset+replay nukes the
+        // running program into corrupt/garbled output. In that case skip it — the
+        // live `data` stream already keeps the terminal current.
+        const first = !attachedOnce.current.has(id);
+        const inAltScreen = entry.term.buffer.active.type === "alternate";
+        if (first || !inAltScreen) {
+          attachedOnce.current.add(id);
+          entry.term.reset();
+          if (bytes.length) entry.term.write(bytes);
+        }
         fitTerminal(id);
       } else {
         pending.current.set(id, bytes.length ? [bytes] : []);
+        attachedOnce.current.add(id); // the pending write IS this id's first paint
       }
     },
     [fitTerminal],
@@ -525,12 +583,35 @@ export function useRemote() {
     ws.onopen = () => {
       if (!mounted.current) return;
       setConn("open");
-      reconnectMs.current = 1000;
+      lastRecv.current = Date.now();
+      // Reset the backoff only once this connection has stayed up for a while, so
+      // an open-then-instant-drop (proxy idle-kill, LB drain) keeps backing off
+      // rather than reconnecting ~1x/second forever.
+      if (stableTimer.current) window.clearTimeout(stableTimer.current);
+      stableTimer.current = window.setTimeout(() => {
+        reconnectMs.current = 1000;
+      }, 5000);
       send({ t: "hello" });
       if (hbTimer.current) window.clearInterval(hbTimer.current);
-      hbTimer.current = window.setInterval(() => send({ t: "ping" }), 25000);
+      hbTimer.current = window.setInterval(() => {
+        const sock = wsRef.current;
+        if (!sock || sock.readyState !== WebSocket.OPEN) return;
+        // When the host is online we expect a pong (relayed by the agent) or data;
+        // total silence for 40s means a half-open link. Force-close so the
+        // reconnect/backoff path runs instead of swallowing keystrokes forever.
+        if (hostOnlineRef.current && Date.now() - lastRecv.current > 40000) {
+          try {
+            sock.close();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        send({ t: "ping" });
+      }, 25000);
     };
     ws.onmessage = (ev) => {
+      lastRecv.current = Date.now();
       let f: ServerFrame;
       try {
         f = JSON.parse(ev.data as string);
@@ -541,6 +622,10 @@ export function useRemote() {
     };
     ws.onclose = (ev) => {
       if (hbTimer.current) window.clearInterval(hbTimer.current);
+      if (stableTimer.current) {
+        window.clearTimeout(stableTimer.current);
+        stableTimer.current = null;
+      }
       if (!mounted.current) return;
       setConn("closed");
       setHostOnline(false);
@@ -780,6 +865,9 @@ export function useRemote() {
   useEffect(() => {
     ctrlRef.current = ctrlSticky;
   }, [ctrlSticky]);
+  useEffect(() => {
+    hostOnlineRef.current = hostOnline;
+  }, [hostOnline]);
 
   // Send a literal sequence (helper keys) to whichever terminal is focused.
   const sendToActive = useCallback(
@@ -891,6 +979,7 @@ export function useRemote() {
     toggleTheme,
     busy,
     status,
+    titles,
     wsById,
     workspaces,
     activeWs,

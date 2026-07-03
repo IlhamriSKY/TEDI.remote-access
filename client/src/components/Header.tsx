@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import { IconLock, IconLogout, IconMoon, IconSettings, IconSun } from "@/lib/icons";
+import { IconLock, IconLogout, IconMoon, IconSettings, IconSidebar, IconSun } from "@/lib/icons";
 import { IconButton } from "@/components/IconButton";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { SettingsModal } from "@/components/SettingsModal";
@@ -19,7 +19,15 @@ import type { Remote } from "@/hooks/useRemote";
 
 const LOGO = `${import.meta.env.BASE_URL}icon.png`;
 
-export function Header({ remote }: { remote: Remote }) {
+export function Header({
+  remote,
+  sidebarOpen,
+  onToggleSidebar,
+}: {
+  remote: Remote;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+}) {
   const connecting = remote.conn !== "open";
   const online = remote.hostOnline && !connecting;
   const dark = remote.theme === "dark";
@@ -28,7 +36,12 @@ export function Header({ remote }: { remote: Remote }) {
 
   return (
     <>
-      <header className="flex h-10 shrink-0 items-center gap-2.5 border-b border-border bg-sidebar px-3">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-sidebar px-2 sm:px-3">
+        <IconButton
+          icon={IconSidebar}
+          label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          onClick={onToggleSidebar}
+        />
         <img src={LOGO} alt="TEDI" className="size-5 shrink-0 select-none" draggable={false} />
         <span className="truncate text-xs font-semibold text-foreground">{remote.hostName || "TEDI Remote"}</span>
 

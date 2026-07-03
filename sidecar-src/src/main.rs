@@ -23,7 +23,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
-use tokio::time::{interval, sleep};
+use tokio::time::{interval, sleep, MissedTickBehavior};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
@@ -148,9 +148,14 @@ fn title_of(info: &SessionInfo) -> String {
         .unwrap_or_else(|| "shell".into())
 }
 
-fn send_relay(tx: &RelayTx, msg: Message) {
-    if let Some(s) = tx.lock().unwrap().as_ref() {
-        let _ = s.try_send(msg); // drop on backpressure/disconnect; browser refetches
+/// Returns false if the frame was dropped (channel full / relay down). The data
+/// path uses this to mark a session "dirty" and later resend its scrollback, so a
+/// mid-stream drop under backpressure self-heals instead of leaving the browser's
+/// xterm parser desynced (garbled / stuck-color output) with no resync signal.
+fn send_relay(tx: &RelayTx, msg: Message) -> bool {
+    match tx.lock().unwrap().as_ref() {
+        Some(s) => s.try_send(msg).is_ok(), // drop on backpressure; caller may resync
+        None => false,
     }
 }
 
@@ -370,7 +375,9 @@ async fn handle_browser_frame(
             println!("CLIENTS {count}");
             let _ = std::io::stdout().flush();
         }
-        "ping" => send_relay(relay_tx, Message::text(json!({ "t": "pong" }).to_string())),
+        "ping" => {
+            send_relay(relay_tx, Message::text(json!({ "t": "pong" }).to_string()));
+        }
         "hello" | "client_join" => {
             // A browser (re)joined: replay current state.
             send_relay(relay_tx, sessions_frame(sessions));
@@ -426,11 +433,16 @@ async fn main() {
 
     let sessions: Sessions = Arc::new(Mutex::new(HashMap::new()));
     let relay_tx: RelayTx = Arc::new(Mutex::new(None));
+    // Sessions whose `data` frame was dropped under relay backpressure. The 2s
+    // poll loop resends their scrollback from the ring so a mid-stream gap
+    // self-heals (see send_relay).
+    let dirty: Arc<Mutex<HashSet<Uuid>>> = Arc::new(Mutex::new(HashSet::new()));
 
     // Pump: daemon Data/Exit -> ring buffer + relay frames.
     {
         let sessions = sessions.clone();
         let relay_tx = relay_tx.clone();
+        let dirty = dirty.clone();
         tokio::spawn(async move {
             while let Some(ev) = ev_rx.recv().await {
                 match ev {
@@ -444,10 +456,13 @@ async fn main() {
                                 }
                             }
                         }
-                        send_relay(
+                        let ok = send_relay(
                             &relay_tx,
                             Message::text(json!({ "t": "data", "id": id, "b64": b64 }).to_string()),
                         );
+                        if !ok {
+                            dirty.lock().unwrap().insert(id);
+                        }
                     }
                     DaemonEvent::Exit { id, code } => {
                         if let Some(st) = sessions.lock().unwrap().get_mut(&id) {
@@ -468,8 +483,12 @@ async fn main() {
         let daemon = daemon.clone();
         let sessions = sessions.clone();
         let relay_tx = relay_tx.clone();
+        let dirty = dirty.clone();
         tokio::spawn(async move {
             let mut tick = interval(Duration::from_secs(2));
+            // Skip (don't burst) missed ticks: if daemon.list() runs long, queued
+            // catch-up ticks must not fire back-to-back and storm the daemon.
+            tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
                 tick.tick().await;
                 let items = match daemon.list().await {
@@ -550,6 +569,52 @@ async fn main() {
                 if changed {
                     send_relay(&relay_tx, sessions_frame(&sessions));
                 }
+
+                // Self-heal sessions whose `data` frame was dropped under
+                // backpressure: resend scrollback from the ring so the browser
+                // repaints and closes the gap. A live full-screen TUI ignores the
+                // replay client-side (a raw-ring replay would corrupt it) and
+                // self-heals on its next redraw; a normal shell repaints cleanly.
+                let to_heal: Vec<Uuid> = {
+                    let mut d = dirty.lock().unwrap();
+                    if d.is_empty() {
+                        Vec::new()
+                    } else {
+                        d.drain().collect()
+                    }
+                };
+                if !to_heal.is_empty() {
+                    let frames: Vec<(Uuid, Message)> = {
+                        let map = sessions.lock().unwrap();
+                        to_heal
+                            .iter()
+                            .filter_map(|id| {
+                                map.get(id).map(|st| {
+                                    let bytes: Vec<u8> = st.ring.iter().copied().collect();
+                                    (
+                                        *id,
+                                        Message::text(
+                                            json!({
+                                                "t": "attached",
+                                                "id": id,
+                                                "scrollback": B64.encode(&bytes),
+                                                "cols": st.info.cols,
+                                                "rows": st.info.rows,
+                                                "alive": st.info.alive,
+                                            })
+                                            .to_string(),
+                                        ),
+                                    )
+                                })
+                            })
+                            .collect()
+                    };
+                    for (id, frame) in frames {
+                        if !send_relay(&relay_tx, frame) {
+                            dirty.lock().unwrap().insert(id); // still saturated; retry next tick
+                        }
+                    }
+                }
             }
         });
     }
@@ -578,8 +643,8 @@ async fn main() {
 
         match connect_async(req).await {
             Ok((ws, _resp)) => {
-                backoff = 1;
                 eprintln!("[agent] relay connected");
+                let connected_at = Instant::now();
                 let (mut sink, mut stream) = ws.split();
                 let (tx, mut rx) = mpsc::channel::<Message>(1024);
                 *relay_tx.lock().unwrap() = Some(tx);
@@ -612,7 +677,9 @@ async fn main() {
                         Ok(Message::Text(t)) => {
                             handle_browser_frame(t.as_str(), &daemon2, &sessions2, &relay_tx2).await;
                         }
-                        Ok(Message::Ping(p)) => send_relay(&relay_tx2, Message::Pong(p)),
+                        Ok(Message::Ping(p)) => {
+                            send_relay(&relay_tx2, Message::Pong(p));
+                        }
                         Ok(Message::Close(_)) => break,
                         Ok(_) => {}
                         Err(e) => {
@@ -625,6 +692,12 @@ async fn main() {
                 *relay_tx.lock().unwrap() = None;
                 writer.abort();
                 eprintln!("[agent] relay disconnected");
+                // Reset the backoff only if the connection proved stable; a
+                // connect-then-instant-drop (proxy idle-kill, relay drain) keeps
+                // backing off instead of reconnecting ~1x/second forever.
+                if connected_at.elapsed() >= Duration::from_secs(30) {
+                    backoff = 1;
+                }
             }
             Err(e) => eprintln!("[agent] relay connect failed: {e}"),
         }
