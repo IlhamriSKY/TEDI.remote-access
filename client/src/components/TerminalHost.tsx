@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 
 import { IconTerminal } from "@/lib/icons";
 import { cn } from "@/lib/utils";
@@ -86,7 +85,7 @@ function EmptyState({ hostOnline, connecting }: { hostOnline: boolean; connectin
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
       <span className="border-border bg-card text-muted-foreground flex size-12 items-center justify-center border">
-        <HugeiconsIcon icon={IconTerminal} size={22} strokeWidth={1.6} />
+        <IconTerminal size={22} strokeWidth={1.6} />
       </span>
       <p className="text-muted-foreground max-w-xs text-xs">{msg}</p>
     </div>

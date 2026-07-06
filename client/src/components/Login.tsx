@@ -1,5 +1,4 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 
 import { IconLock } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
@@ -41,7 +40,7 @@ export function Login({ remote }: { remote: Remote }) {
       <form onSubmit={submit} className="w-full max-w-[360px] border border-border bg-card p-6 shadow-lg">
         <div className="mb-5 flex items-center gap-2.5">
           <span className="flex size-9 items-center justify-center border border-border bg-secondary text-primary">
-            <HugeiconsIcon icon={IconLock} size={18} strokeWidth={1.8} />
+            <IconLock size={18} strokeWidth={1.8} />
           </span>
           <span className="leading-tight">
             <span className="block text-sm font-semibold text-foreground">TEDI Remote</span>

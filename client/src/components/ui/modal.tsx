@@ -1,5 +1,4 @@
 import { useEffect, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 
 import { IconClose } from "@/lib/icons";
 import { cn } from "@/lib/utils";
@@ -59,7 +58,7 @@ export function Modal({
             onClick={onClose}
             className="-mr-1 flex size-6 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:border focus-visible:border-ring focus-visible:outline-none"
           >
-            <HugeiconsIcon icon={IconClose} size={13} strokeWidth={2} />
+            <IconClose size={13} strokeWidth={2} />
           </button>
         </div>
         {children}

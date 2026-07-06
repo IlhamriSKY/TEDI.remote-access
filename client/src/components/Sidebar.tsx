@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 
 import {
   IconAdd,
@@ -174,7 +173,7 @@ export function Sidebar({
                 aria-label="New tab"
                 className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:border-ring flex size-6 items-center justify-center border border-transparent transition-colors focus-visible:outline-none"
               >
-                <HugeiconsIcon icon={IconAdd} size={15} strokeWidth={1.8} />
+                <IconAdd size={15} strokeWidth={1.8} />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44">
@@ -183,16 +182,16 @@ export function Sidebar({
                   remote.workspaces.length > 1 ? setNewTermOpen(true) : remote.newTerminal()
                 }
               >
-                <HugeiconsIcon icon={IconTerminal} size={14} strokeWidth={1.8} />
+                <IconTerminal size={14} strokeWidth={1.8} />
                 New terminal
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setSshOpen(true)}>
-                <HugeiconsIcon icon={IconSsh} size={14} strokeWidth={1.8} />
+                <IconSsh size={14} strokeWidth={1.8} />
                 New SSH…
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setNewWsOpen(true)}>
-                <HugeiconsIcon icon={IconFolder} size={14} strokeWidth={1.8} />
+                <IconFolder size={14} strokeWidth={1.8} />
                 New workspace…
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -264,6 +263,7 @@ function WorkspaceGroup({
   onSelectTab: (id: string) => void;
   onCloseTab: (s: SessionMeta) => void;
 }) {
+  const Chevron = collapsed ? IconChevronRight : IconChevronDown;
   return (
     <div className="mb-0.5">
       {showHeader && (
@@ -275,13 +275,9 @@ function WorkspaceGroup({
             aria-expanded={!collapsed}
             className="hover:text-foreground flex size-4 shrink-0 items-center justify-center"
           >
-            <HugeiconsIcon
-              icon={collapsed ? IconChevronRight : IconChevronDown}
-              size={12}
-              strokeWidth={2.25}
-            />
+            <Chevron size={12} strokeWidth={2.25} />
           </button>
-          <HugeiconsIcon icon={IconFolder} size={13} strokeWidth={1.75} className="shrink-0" />
+          <IconFolder size={13} strokeWidth={1.75} className="shrink-0" />
           <button
             type="button"
             onClick={onSelectWorkspace}
@@ -327,6 +323,7 @@ function TabRow({
   onClose: () => void;
 }) {
   const ssh = s.kind === "ssh";
+  const TabIcon = ssh ? IconSsh : IconTerminal;
   const st = remote.status[s.id];
   const running = st === "working" || st === "blocking" || !!remote.busy[s.id];
   const accent = ssh ? "text-[#38bdf8]" : "text-terminal";
@@ -365,12 +362,7 @@ function TabRow({
           active ? "text-foreground" : "text-muted-foreground group-hover/tab:text-foreground",
         )}
       >
-        <HugeiconsIcon
-          icon={ssh ? IconSsh : IconTerminal}
-          size={13}
-          strokeWidth={1.8}
-          className={cn("shrink-0", iconColor)}
-        />
+        <TabIcon size={13} strokeWidth={1.8} className={cn("shrink-0", iconColor)} />
         {remote.ordinals[s.id] != null && (
           <span
             className={cn(
@@ -397,7 +389,7 @@ function TabRow({
         }}
         className="text-muted-foreground hover:text-foreground flex w-6 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/tab:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
       >
-        <HugeiconsIcon icon={IconClose} size={12} strokeWidth={2} />
+        <IconClose size={12} strokeWidth={2} />
       </button>
     </div>
   );

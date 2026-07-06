@@ -1,8 +1,7 @@
 import * as React from "react";
 import { Popover } from "radix-ui";
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
-import { IconCheck, IconChevronDown, IconSearch } from "@/lib/icons";
+import { IconCheck, IconChevronDown, IconSearch, type LucideIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 
 // One styled dropdown used everywhere a native <select> was, so every picker in
@@ -18,7 +17,7 @@ export type SelectOption = {
   /** Secondary muted text after the label (e.g. "user@host:22"). */
   hint?: string;
   /** Optional leading glyph. */
-  icon?: IconSvgElement;
+  icon?: LucideIcon;
 };
 
 type Props = {
@@ -111,8 +110,7 @@ export function Select({
           >
             {selected ? selected.label : placeholder}
           </span>
-          <HugeiconsIcon
-            icon={IconChevronDown}
+          <IconChevronDown
             size={size === "sm" ? 13 : 14}
             strokeWidth={2}
             className={cn(
@@ -135,8 +133,7 @@ export function Select({
         >
           {searchable && (
             <div className="border-border flex items-center gap-1.5 border-b px-2.5">
-              <HugeiconsIcon
-                icon={IconSearch}
+              <IconSearch
                 size={13}
                 strokeWidth={1.8}
                 className="text-muted-foreground shrink-0"
@@ -160,6 +157,7 @@ export function Select({
               filtered.map((o, i) => {
                 const isSel = o.value === value;
                 const isActive = i === active;
+                const Icon = o.icon;
                 return (
                   <button
                     key={o.value}
@@ -173,9 +171,8 @@ export function Select({
                       isActive ? "bg-muted" : "hover:bg-muted",
                     )}
                   >
-                    {o.icon && (
-                      <HugeiconsIcon
-                        icon={o.icon}
+                    {Icon && (
+                      <Icon
                         size={14}
                         strokeWidth={1.8}
                         className="text-muted-foreground shrink-0"
@@ -186,8 +183,7 @@ export function Select({
                       {o.hint && <span className="text-muted-foreground ml-1.5">{o.hint}</span>}
                     </span>
                     {isSel && (
-                      <HugeiconsIcon
-                        icon={IconCheck}
+                      <IconCheck
                         size={14}
                         strokeWidth={2}
                         className="text-primary shrink-0"

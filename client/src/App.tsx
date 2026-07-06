@@ -1,5 +1,3 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-
 import { IconSpin } from "@/lib/icons";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Login } from "@/components/Login";
@@ -26,7 +24,7 @@ export default function App() {
 function Splash() {
   return (
     <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-      <HugeiconsIcon icon={IconSpin} size={22} className="animate-spin" strokeWidth={2} />
+      <IconSpin size={22} className="animate-spin" strokeWidth={2} />
     </div>
   );
 }

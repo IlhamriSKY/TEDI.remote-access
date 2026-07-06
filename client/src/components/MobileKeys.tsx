@@ -1,6 +1,4 @@
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-
-import { IconDown, IconLeft, IconRight, IconUp } from "@/lib/icons";
+import { IconDown, IconLeft, IconRight, IconUp, type LucideIcon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import type { Remote } from "@/hooks/useRemote";
 
@@ -10,7 +8,7 @@ const TAB = String.fromCharCode(9);
 
 type Key =
   | { kind: "ctrl" }
-  | { kind: "icon"; id: string; icon: IconSvgElement; seq: string; label: string }
+  | { kind: "icon"; id: string; icon: LucideIcon; seq: string; label: string }
   | { kind: "text"; id: string; label: string; seq: string };
 
 const KEYS: Key[] = [
@@ -48,6 +46,7 @@ export function MobileKeys({ remote }: { remote: Remote }) {
           );
         }
         if (k.kind === "icon") {
+          const Icon = k.icon;
           return (
             <Button
               key={k.id}
@@ -56,7 +55,7 @@ export function MobileKeys({ remote }: { remote: Remote }) {
               aria-label={k.label}
               onClick={() => remote.sendToActive(k.seq)}
             >
-              <HugeiconsIcon icon={k.icon} size={15} strokeWidth={1.8} />
+              <Icon size={15} strokeWidth={1.8} />
             </Button>
           );
         }

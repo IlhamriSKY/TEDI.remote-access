@@ -2,6 +2,12 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.10.2] - 2026-07-06
+
+### Changed
+
+- **Migrated the browser client and the status-bar icon from Hugeicons to lucide-react.** The web client icons (toolbar, sidebar, login, on-screen keys, select, modal) now come from `lucide-react` instead of `@hugeicons/react`, and the extension status-bar item uses a `lucide:` ref, matching the TEDI app after its Lucide migration. Same glyphs, no visual change; drops the `@hugeicons/*` client dependencies.
+
 ## [0.10.1] - 2026-07-03
 
 ### Fixed

@@ -88,7 +88,7 @@ function agentProgram(ctx) {
 
 function setStatus(tone, tooltip) {
   try {
-    ctxRef.statusBar.setItem({ id: "remote", icon: "hugeicon:Globe02Icon", tooltip, tone });
+    ctxRef.statusBar.setItem({ id: "remote", icon: "lucide:Globe", tooltip, tone });
   } catch {
     /* statusbar:write missing — non-fatal */
   }

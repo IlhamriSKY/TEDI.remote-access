@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 
 import { IconLock, IconLogout, IconMoon, IconSettings, IconSidebar, IconSun } from "@/lib/icons";
 import { IconButton } from "@/components/IconButton";
@@ -113,7 +112,7 @@ function UserMenu({
         <div className="truncate px-2.5 pb-1.5 text-xs font-medium text-foreground">{user}</div>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => onChangePassword()}>
-          <HugeiconsIcon icon={IconLock} size={14} strokeWidth={1.8} />
+          <IconLock size={14} strokeWidth={1.8} />
           Change password
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -121,7 +120,7 @@ function UserMenu({
           className="text-destructive focus:bg-destructive/10 focus:text-destructive"
           onSelect={() => void remote.logout()}
         >
-          <HugeiconsIcon icon={IconLogout} size={14} strokeWidth={1.8} />
+          <IconLogout size={14} strokeWidth={1.8} />
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
