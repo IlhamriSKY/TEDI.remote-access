@@ -1,6 +1,6 @@
 # TEDI Remote Access
 
-Reach the terminals you have open in [TEDI](https://github.com/IlhamriSKY/TEDI)
+Reach the terminals you have open in [TEDI](https://tedi.ilhamriski.com/)
 from a browser anywhere, and open new terminal or SSH tabs straight from that
 browser, while your PC is on and TEDI is running. A tiny native agent mirrors
 your live tabs to a **relay you host yourself**, so any phone or laptop can

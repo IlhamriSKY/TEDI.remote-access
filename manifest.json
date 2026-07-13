@@ -4,7 +4,7 @@
   "version": "0.10.2",
   "description": "Mirror your open TEDI terminals to a browser anywhere, via your self-hosted relay.",
   "author": "IlhamriSKY",
-  "homepage": "https://github.com/IlhamriSKY/TEDI",
+  "homepage": "https://tedi.ilhamriski.com/",
   "icon": "icon.png",
   "main": "extension.js",
   "permissions": [
