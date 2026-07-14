@@ -26,18 +26,21 @@ const KEYS: Key[] = [
   { kind: "text", id: "dash", label: "-", seq: "-" },
 ];
 
-// Helper-key row for touch devices (phone keyboards lack Esc/Tab/Ctrl/arrows).
-// Hidden on desktop where a real keyboard exists.
+// Helper-key row for touch devices (soft keyboards lack Esc/Tab/Ctrl/arrows).
+// Gated by POINTER TYPE, not width: shown on every touch-primary device
+// (phones AND tablets/iPads, which sit >=768px and were wrongly hidden by the
+// old `md:hidden`), hidden only where the primary pointer is a mouse (desktops,
+// which have a real keyboard).
 export function MobileKeys({ remote }: { remote: Remote }) {
   return (
-    <div className="no-scrollbar flex shrink-0 items-center gap-1 overflow-x-auto border-t border-border bg-card px-1.5 py-1.5 md:hidden">
+    <div className="no-scrollbar flex shrink-0 items-center gap-1 overflow-x-auto border-t border-border bg-card px-1.5 py-1.5 pointer-fine:hidden">
       {KEYS.map((k, i) => {
         if (k.kind === "ctrl") {
           return (
             <Button
               key={`ctrl-${i}`}
               variant={remote.ctrlSticky ? "default" : "outline"}
-              size="sm"
+              size="default"
               className="min-w-[46px]"
               onClick={() => remote.setCtrlSticky(!remote.ctrlSticky)}
             >
@@ -51,7 +54,7 @@ export function MobileKeys({ remote }: { remote: Remote }) {
             <Button
               key={k.id}
               variant="outline"
-              size="icon-sm"
+              size="icon"
               aria-label={k.label}
               onClick={() => remote.sendToActive(k.seq)}
             >
@@ -63,7 +66,7 @@ export function MobileKeys({ remote }: { remote: Remote }) {
           <Button
             key={k.id}
             variant="outline"
-            size="sm"
+            size="default"
             className="min-w-[42px] font-mono"
             onClick={() => remote.sendToActive(k.seq)}
           >

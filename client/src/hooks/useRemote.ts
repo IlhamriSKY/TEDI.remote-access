@@ -444,17 +444,21 @@ export function useRemote() {
         }
         // The agent re-sends `attached` for a live session on every relay
         // (re)connect and every client_join. Repainting from the ring is only
-        // safe on the FIRST attach or for a normal-screen shell; for a live
-        // full-screen TUI (alt-screen, e.g. Claude) a reset+replay nukes the
-        // running program into corrupt/garbled output. In that case skip it — the
-        // live `data` stream already keeps the terminal current.
+        // safe on the FIRST attach, or a normal-screen re-attach that actually
+        // CARRIES scrollback to repaint. Two cases must NOT reset:
+        //   - a live full-screen TUI (alt-screen, e.g. Claude): a reset+replay
+        //     nukes the running program into corrupt output.
+        //   - an empty-scrollback re-attach: every SSH `attached` sends
+        //     scrollback:"" (the bridge has no ring), so a re-attach after a
+        //     source/webview reconnect would reset() a live SSH terminal to
+        //     BLANK. Keep what's on screen — the live `data` stream stays current.
         const first = !attachedOnce.current.has(id);
         const inAltScreen = entry.term.buffer.active.type === "alternate";
-        if (first || !inAltScreen) {
-          attachedOnce.current.add(id);
+        if (first || (!inAltScreen && bytes.length)) {
           entry.term.reset();
-          if (bytes.length) entry.term.write(bytes);
+          entry.term.write(bytes);
         }
+        attachedOnce.current.add(id);
         fitTerminal(id);
       } else {
         pending.current.set(id, bytes.length ? [bytes] : []);
@@ -596,13 +600,17 @@ export function useRemote() {
       }, 5000);
       send({ t: "hello" });
       if (hbTimer.current) window.clearInterval(hbTimer.current);
+      // Ping every 10s; force-close after ~28s of total silence. On a healthy
+      // idle link a pong (or data) refreshes lastRecv every 10s, so 28s (~3
+      // missed pings) never false-closes it — but a half-open link (send dir
+      // dead, ping never lands) is caught in ~28-38s instead of the old 40-65s,
+      // which is what made a live-looking tab silently swallow keystrokes,
+      // especially on mobile Wi-Fi/cellular handoff. ponytail: threshold must
+      // stay > interval + RTT margin; tune the pair together if the link is slow.
       hbTimer.current = window.setInterval(() => {
         const sock = wsRef.current;
         if (!sock || sock.readyState !== WebSocket.OPEN) return;
-        // When the host is online we expect a pong (relayed by the agent) or data;
-        // total silence for 40s means a half-open link. Force-close so the
-        // reconnect/backoff path runs instead of swallowing keystrokes forever.
-        if (hostOnlineRef.current && Date.now() - lastRecv.current > 40000) {
+        if (hostOnlineRef.current && Date.now() - lastRecv.current > 28000) {
           try {
             sock.close();
           } catch {
@@ -611,7 +619,7 @@ export function useRemote() {
           return;
         }
         send({ t: "ping" });
-      }, 25000);
+      }, 10000);
     };
     ws.onmessage = (ev) => {
       lastRecv.current = Date.now();
@@ -716,6 +724,17 @@ export function useRemote() {
     [],
   );
 
+  // Snapshot the current session ids so the newcomer (a new terminal / SSH tab /
+  // workspace's default terminal) auto-focuses when it streams in. Cleared after
+  // 8s so a no-op request never mis-selects a later, unrelated session.
+  const markPendingNew = useCallback(() => {
+    pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
+    if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
+    pendingNewTimer.current = window.setTimeout(() => {
+      pendingNewIds.current = null;
+    }, 8000);
+  }, []);
+
   // Open a SAVED SSH connection. The user re-authenticates with their LOGIN
   // password (NOT the SSH password) over POST /api/open-ssh; the relay verifies
   // it and tells the host to open the connection by id (keychain creds stay on
@@ -728,11 +747,7 @@ export function useRemote() {
       wsId?: string,
     ): Promise<{ ok: boolean; error?: string }> => {
       // Snapshot existing ids so the new SSH tab auto-focuses when it appears.
-      pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
-      if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
-      pendingNewTimer.current = window.setTimeout(() => {
-        pendingNewIds.current = null;
-      }, 8000);
+      markPendingNew();
       try {
         const r = await fetch("/api/open-ssh", {
           method: "POST",
@@ -762,7 +777,7 @@ export function useRemote() {
         return { ok: false, error: "Network error" };
       }
     },
-    [],
+    [markPendingNew],
   );
 
   // boot: check session, then connect
@@ -910,17 +925,13 @@ export function useRemote() {
       const e = id ? terms.current.get(id) : null;
       const cols = e?.term.cols ?? 80;
       const rows = e?.term.rows ?? 24;
-      pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
-      if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
-      pendingNewTimer.current = window.setTimeout(() => {
-        pendingNewIds.current = null;
-      }, 8000);
+      markPendingNew();
       // `wsId` (optional) asks the host extension to switch the desktop to that
       // workspace first, so the new terminal is adopted into it. The native agent
       // ignores the field and just spawns.
       send({ t: "open", cols, rows, ...(wsId ? { wsId } : {}) });
     },
-    [send],
+    [send, markPendingNew],
   );
 
   // Ask the host to create a NEW workspace (it switches to it on the desktop,
@@ -928,14 +939,10 @@ export function useRemote() {
   // in via the next tabmeta/sessions frames; snapshot ids so it auto-focuses.
   const createRemoteWorkspace = useCallback(
     (name: string) => {
-      pendingNewIds.current = new Set(sessionsRef.current.map((s) => s.id));
-      if (pendingNewTimer.current) window.clearTimeout(pendingNewTimer.current);
-      pendingNewTimer.current = window.setTimeout(() => {
-        pendingNewIds.current = null;
-      }, 8000);
+      markPendingNew();
       send({ t: "ws-create", name });
     },
-    [send],
+    [send, markPendingNew],
   );
 
   // Permanently close (kill) a tab. The host kills the daemon PTY (or the SSH
@@ -945,10 +952,19 @@ export function useRemote() {
   // it if the close didn't take).
   const closeTerminal = useCallback(
     (id: string) => {
+      // Parity with the desktop's per-workspace last-tab gate (useTabs.closeTab:
+      // `if (curr.length <= 1) return curr`): a workspace always keeps >=1 tab, so
+      // refuse to close a session that is the ONLY one in its workspace. Ungrouped
+      // sessions (no wsId — older host, or before tabmeta arrives) are treated as
+      // one group, matching the sidebar's "Other" bucket. The sidebar also hides
+      // the X in that case (canClose), so this is the belt to that suspenders.
+      const ws = wsById[id];
+      const siblings = sessionsRef.current.filter((s) => wsById[s.id] === ws);
+      if (siblings.length <= 1) return;
       send({ t: "close", id });
       setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, alive: false } : s)));
     },
-    [send],
+    [send, wsById],
   );
 
   // Drag-to-reorder: move `draggedId` to where `targetId` currently sits. The
@@ -968,17 +984,9 @@ export function useRemote() {
     });
   }, []);
 
-  // The workspace currently in view = the one owning the active tab, falling back
-  // to the desktop's active workspace, then the first. Derived (no extra state)
-  // so it can never drift out of sync with activeId.
-  const activeWs =
-    (activeId && wsById[activeId]) ||
-    workspaces.find((w) => w.active)?.id ||
-    workspaces[0]?.id ||
-    null;
-
-  // Switch the viewed workspace by focusing its first tab (which, by the
-  // derivation above, makes it the active workspace). No-op if it has no live tab.
+  // Switch the viewed workspace by focusing its first tab. The sidebar then
+  // highlights whichever group owns the active tab, so no separate "active
+  // workspace" state is needed. No-op if the workspace has no live tab.
   const selectWorkspace = useCallback(
     (workspaceId: string) => {
       const first = sessionsRef.current.find((s) => wsById[s.id] === workspaceId);
@@ -1027,7 +1035,6 @@ export function useRemote() {
     titles,
     wsById,
     workspaces,
-    activeWs,
     selectWorkspace,
     login,
     logout,

@@ -2,6 +2,57 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.11.0] - 2026-07-14
+
+A stability, parity, security, and responsiveness pass. Needs TEDI >= 0.3.73
+(unchanged).
+
+### Fixed
+
+- **Tabs no longer get stuck or come back blank on a brief reconnect.** When a
+  mirror source (the SSH bridge or the native agent) reconnects, a webview
+  reload, a Wi-Fi/cellular handoff, or a short network blip, the relay now keeps
+  that source's tabs listed for a few seconds instead of dropping them the
+  instant it disconnects, so the browser stops disposing and re-electing every
+  mirrored tab. SSH tabs in particular no longer return blank (their re-attach
+  carries no scrollback, so the terminal keeps what's on screen rather than being
+  reset), and the view no longer bounces off an SSH tab and fails to return to it.
+- **A half-open connection is caught sooner.** The keep-alive pings every 10s and
+  force-reconnects after ~28s of silence (was 25s / 40s), so a live-looking tab
+  stops silently swallowing keystrokes faster, most noticeable on mobile after a
+  network handoff.
+- **The last tab in a workspace can no longer be closed,** matching the desktop
+  app: its close (x) is hidden and the close is refused, so a workspace always
+  keeps at least one tab (open a new one first).
+
+### Added
+
+- **The active workspace is highlighted** in the sidebar, like the desktop
+  Workspaces panel, so it's clear which one you're viewing.
+- **On-screen helper keys now show on tablets, not just phones.** The
+  Esc/Tab/Ctrl/arrow row is gated by pointer type (touch) instead of screen
+  width, so iPads and other touch tablets get it too, and the keys are a bit
+  larger for easier tapping.
+- **Pinch-to-zoom works on mobile again** (the viewport no longer locks the
+  scale), dialogs scroll internally so their buttons are never clipped off a
+  short or landscape phone, and the mobile drawer clears notches / home
+  indicators.
+
+### Security
+
+- **Closed an SSH re-authentication bypass in the relay.** A browser could craft
+  a WebSocket frame that slipped past the `open-ssh` filter (via padding, a
+  `\u`-escaped type, or leading whitespace) and open a saved SSH connection
+  without the password + 2FA re-check that `POST /api/open-ssh` enforces. The
+  relay now decides purely from the parsed frame type, so the re-auth gate cannot
+  be skipped.
+- **Changing your password now revokes other sessions.** Sessions are bound to
+  the current password, so a stolen or stale session cookie stops working the
+  moment the password changes (the device that changed it stays signed in).
+- **Login hashing no longer blocks the relay.** Password verification (scrypt)
+  runs off the event loop, so a login flood can't stall live terminal streaming
+  for connected browsers.
+
 ## [0.10.2] - 2026-07-06
 
 ### Changed

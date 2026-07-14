@@ -42,7 +42,11 @@ export function Modal({
         aria-labelledby={labelledBy}
         data-state="open"
         className={cn(
-          "w-full max-w-sm border border-border bg-card shadow-lg",
+          // max-h + scroll so a tall dialog (SSH: workspace + host + password +
+          // TOTP + error) never clips its header/footer off a short or landscape-
+          // phone viewport — the whole card scrolls instead. 2rem = the wrapper's
+          // p-4 top+bottom.
+          "max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto border border-border bg-card shadow-lg",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           className,
         )}

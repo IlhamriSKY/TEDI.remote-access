@@ -150,7 +150,11 @@ export function Sidebar({
         className={cn(
           "bg-sidebar border-border relative z-40 shrink-0 flex-col border-r",
           // Mobile drawer: fixed width (!w-72 beats the inline style), overlaid.
+          // It is position:fixed so it escapes #root's safe-area padding — pad it
+          // itself so the header + tab rows clear the notch / side cutout / home
+          // indicator on notched phones (no-op on desktop; insets resolve to 0).
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:!w-72 max-md:max-w-[85%] max-md:shadow-xl",
+          "max-md:pt-[env(safe-area-inset-top)] max-md:pl-[env(safe-area-inset-left)] max-md:pb-[env(safe-area-inset-bottom)]",
           open ? "flex" : "hidden",
         )}
       >
@@ -207,6 +211,7 @@ export function Sidebar({
                 key={g.id}
                 group={g}
                 showHeader={hasWs}
+                active={g.tabs.some((t) => t.id === activeId)}
                 collapsed={collapsed.has(g.id)}
                 onToggle={() => toggle(g.id)}
                 onSelectWorkspace={() => g.id !== WS_OTHER && remote.selectWorkspace(g.id)}
@@ -245,6 +250,7 @@ export function Sidebar({
 function WorkspaceGroup({
   group,
   showHeader,
+  active,
   collapsed,
   onToggle,
   onSelectWorkspace,
@@ -255,6 +261,7 @@ function WorkspaceGroup({
 }: {
   group: Group;
   showHeader: boolean;
+  active: boolean;
   collapsed: boolean;
   onToggle: () => void;
   onSelectWorkspace: () => void;
@@ -264,10 +271,19 @@ function WorkspaceGroup({
   onCloseTab: (s: SessionMeta) => void;
 }) {
   const Chevron = collapsed ? IconChevronRight : IconChevronDown;
+  // The last tab in a workspace is not closable (mirrors the desktop's
+  // per-workspace gate: useTabs.closeTab no-ops at length<=1 and hides the X).
+  const canClose = group.tabs.length > 1;
   return (
     <div className="mb-0.5">
       {showHeader && (
-        <div className="text-muted-foreground flex h-7 items-center gap-1 px-1.5 text-xs">
+        <div
+          className={cn(
+            "flex h-7 items-center gap-1 px-1.5 text-xs",
+            // Highlight the active workspace like the desktop Workspaces panel.
+            active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+          )}
+        >
           <button
             type="button"
             onClick={onToggle}
@@ -298,6 +314,7 @@ function WorkspaceGroup({
               key={s.id}
               s={s}
               active={s.id === activeId}
+              canClose={canClose}
               remote={remote}
               onSelect={() => onSelectTab(s.id)}
               onClose={() => onCloseTab(s)}
@@ -312,12 +329,14 @@ function WorkspaceGroup({
 function TabRow({
   s,
   active,
+  canClose,
   remote,
   onSelect,
   onClose,
 }: {
   s: SessionMeta;
   active: boolean;
+  canClose: boolean;
   remote: Remote;
   onSelect: () => void;
   onClose: () => void;
@@ -379,18 +398,25 @@ function TabRow({
         </span>
         {!s.alive && <span className="text-muted-foreground shrink-0 text-[10px]">exited</span>}
       </button>
-      <button
-        type="button"
-        aria-label={`Close ${folder}`}
-        title="Close terminal"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        className="text-muted-foreground hover:text-foreground flex w-6 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/tab:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
-      >
-        <IconClose size={12} strokeWidth={2} />
-      </button>
+      {/* The sole tab in a workspace has no close button, like the desktop
+          (SortableTabGroup: canClose = totalEntries > 1). pr-1.5 keeps the label
+          clear of the scrollbar when the X is gone. */}
+      {canClose ? (
+        <button
+          type="button"
+          aria-label={`Close ${folder}`}
+          title="Close terminal"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="text-muted-foreground hover:text-foreground flex w-6 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/tab:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
+        >
+          <IconClose size={12} strokeWidth={2} />
+        </button>
+      ) : (
+        <span className="w-1.5 shrink-0" aria-hidden />
+      )}
     </div>
   );
 }

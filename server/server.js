@@ -59,6 +59,14 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY = 1 << 16;
 const MAX_CLIENTS = 50; // browser WS cap (guards the client_join scrollback-replay amplification)
 const MAX_AGENT_SOURCES = 4; // native PTY agent + SSH bridge; a handful is plenty
+// When an agent SOURCE drops, keep its sessions listed for this long before
+// removing them. A source that reconnects inside the window (webview reload,
+// Wi-Fi/cellular handoff, brief network blip) never makes the merged list shrink,
+// so browsers don't dispose+re-elect their mirrored tabs — which was blanking SSH
+// tabs (their re-attach carries no scrollback) and bouncing the active tab off an
+// SSH session it never returned to. Merged items are de-duped by id, so the
+// reconnected source's fresh entries supersede the draining ones cleanly.
+const SOURCE_DRAIN_MS = 8000;
 
 // CSP for the SPA shell. Turnstile (when enabled) needs its script + iframe +
 // connect to challenges.cloudflare.com; otherwise the policy stays strict.
@@ -122,11 +130,26 @@ function safeEqStr(a, b) {
   return crypto.timingSafeEqual(ba, bb);
 }
 
-function verifyPass(pass) {
+const scryptAsync = (pass, salt, keylen) =>
+  new Promise((resolve, reject) =>
+    crypto.scrypt(pass, salt, keylen, (err, dk) => (err ? reject(err) : resolve(dk))),
+  );
+
+// Async so the ~10-20ms scrypt runs on the libuv threadpool, not the single
+// event loop. verifyPass is on every /api/login (unconditionally, by the
+// anti-timing design) and the per-IP limiter doesn't gate a many-IP flood, so a
+// blocking scryptSync here would freeze PTY/SSH mirroring for every connected
+// browser under a distributed login flood.
+async function verifyPass(pass) {
   if (loginPassHash) {
     const [saltHex, hashHex] = loginPassHash.split(":");
     if (!saltHex || !hashHex) return false;
-    const dk = crypto.scryptSync(pass, Buffer.from(saltHex, "hex"), 32);
+    let dk;
+    try {
+      dk = await scryptAsync(pass, Buffer.from(saltHex, "hex"), 32);
+    } catch {
+      return false;
+    }
     const expect = Buffer.from(hashHex, "hex");
     return dk.length === expect.length && crypto.timingSafeEqual(dk, expect);
   }
@@ -140,9 +163,24 @@ function hashPassword(pass) {
   return salt.toString("hex") + ":" + dk.toString("hex");
 }
 
+// Short digest of the CURRENT login password, embedded in every session so a
+// 'Change password' invalidates all outstanding cookies — otherwise a stolen
+// session survives the very action taken to revoke it (up to the 12h TTL).
+// Stable across restarts (SESSION_SECRET + loginPassHash are stable), so it
+// never causes a spurious mass logout; it only rotates when the password does.
+// The LOGIN_PASS fallback covers the dev-only plaintext config where
+// loginPassHash is empty.
+function passKid() {
+  return crypto
+    .createHmac("sha256", SESSION_SECRET)
+    .update(loginPassHash || LOGIN_PASS || "")
+    .digest("base64url")
+    .slice(0, 16);
+}
+
 function signSession(user) {
   const exp = Date.now() + SESSION_TTL_MS;
-  const payload = Buffer.from(JSON.stringify({ u: user, exp })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ u: user, exp, k: passKid() })).toString("base64url");
   const sig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
@@ -156,6 +194,8 @@ function verifySession(cookie) {
   try {
     const o = JSON.parse(Buffer.from(payload, "base64url").toString());
     if (!o || typeof o.exp !== "number" || o.exp < Date.now()) return null;
+    // Reject sessions minted under a previous password (revoked by a change).
+    if (o.k !== passKid()) return null;
     return o;
   } catch {
     return null;
@@ -410,7 +450,7 @@ const server = http.createServer(async (req, res) => {
     // Evaluate all three factors unconditionally before combining, so a wrong
     // username can't short-circuit the expensive scrypt and leak via timing.
     const okUser = safeEqStr(body.user || "", LOGIN_USER);
-    const okPass = verifyPass(body.pass || "");
+    const okPass = await verifyPass(body.pass || "");
     const totpC = verifyTotp(body.otp);
     const okOtp = totpC >= 0;
     const ok = okUser && okPass && okOtp;
@@ -449,7 +489,7 @@ const server = http.createServer(async (req, res) => {
     }
     const current = String(body.current || "");
     const next = String(body.new || "");
-    if (!verifyPass(current)) {
+    if (!(await verifyPass(current))) {
       noteFail(ip);
       return json(res, 401, { ok: false, error: "current password is incorrect" });
     }
@@ -467,6 +507,10 @@ const server = http.createServer(async (req, res) => {
       return json(res, 500, { ok: false, error: "could not save the new password on the server" });
     }
     loginFails.delete(ip);
+    // The password rotation just invalidated EVERY session (passKid changed),
+    // including this one. Re-issue a fresh cookie so the user who changed it
+    // stays signed in, while other/stolen sessions are revoked.
+    setSessionCookie(res, signSession(sess.u));
     log(`password changed by '${sess.u}'`);
     return json(res, 200, { ok: true });
   }
@@ -492,7 +536,7 @@ const server = http.createServer(async (req, res) => {
     const connectionId = String(body.connectionId || "");
     if (!connectionId) return json(res, 400, { ok: false, error: "missing connection" });
     // Evaluate both factors before combining (timing-leak defense, like login).
-    const okPass = verifyPass(String(body.pass || ""));
+    const okPass = await verifyPass(String(body.pass || ""));
     const totpC = verifyTotp(body.otp);
     const okOtp = totpC >= 0;
     if (!okPass || !okOtp) {
@@ -571,6 +615,7 @@ const MAX_CLIENT_BUFFER = 8 * 1024 * 1024;
 // while at least one source is connected.
 const agents = new Set();
 const sessionsBySource = new Map(); // ws -> sessions items[]
+const drainTimers = new Map(); // ws -> timer keeping a dropped source's sessions listed briefly
 let agentName = null;
 const clients = new Set();
 let lastClientJoin = 0;
@@ -616,9 +661,11 @@ function sendClientCount(ws) {
 }
 
 function mergedSessionItems() {
-  const out = [];
-  for (const items of sessionsBySource.values()) for (const it of items) out.push(it);
-  return out;
+  // De-dup by session id (last writer wins) so a source draining after a drop and
+  // the SAME source freshly reconnected (a new ws key) don't list every tab twice.
+  const byId = new Map();
+  for (const items of sessionsBySource.values()) for (const it of items) byId.set(it.id, it);
+  return [...byId.values()];
 }
 let lastSessionsStr = null;
 function broadcastSessions() {
@@ -669,10 +716,24 @@ wssAgent.on("connection", (ws) => {
   ws.on("pong", () => (ws.isAlive = true));
   ws.on("close", () => {
     agents.delete(ws);
-    sessionsBySource.delete(ws);
     log(`agent source disconnected (${agents.size} total)`);
-    lastSessionsStr = null; // a source left: force the reduced list to re-publish
-    broadcastSessions();
+    // Grace window: keep this source's sessions in the merged list for
+    // SOURCE_DRAIN_MS so a quick reconnect doesn't flap every mirrored tab (the
+    // client disposes/re-elects on a shrunken list). Only drop — and re-publish
+    // the smaller list — once the source stays gone past the window.
+    const items = sessionsBySource.get(ws) || [];
+    if (items.length) {
+      const t = setTimeout(() => {
+        drainTimers.delete(ws);
+        sessionsBySource.delete(ws);
+        lastSessionsStr = null;
+        broadcastSessions();
+      }, SOURCE_DRAIN_MS);
+      if (t.unref) t.unref();
+      drainTimers.set(ws, t);
+    } else {
+      sessionsBySource.delete(ws);
+    }
     if (agents.size === 0) broadcastClients(JSON.stringify({ t: "host", status: "offline" }));
   });
   ws.on("error", () => {});
@@ -717,17 +778,21 @@ wssClient.on("connection", (ws) => {
   ws.on("message", (data) => {
     const s = data.toString();
     // Browsers may NOT open SSH over the WS broadcast path. `open-ssh` opens a
-    // real SSH session and is only permitted via POST /api/open-ssh, which
-    // re-verifies the login password. Drop any browser-sent open-ssh so a client
-    // can't inject it here and bypass that gate. (Cheap substring pre-check so
-    // the common frames aren't parsed.)
-    if (s.length < 4096 && s.includes('"open-ssh"')) {
-      try {
-        if (JSON.parse(s).t === "open-ssh") return;
-      } catch {
-        /* not JSON; fall through to normal forwarding */
-      }
+    // real SSH session and is ONLY permitted via POST /api/open-ssh, which
+    // re-verifies the login password (+ TOTP). Decide the drop from the PARSED
+    // frame type — never a substring or a byte/length pre-check. EVERY such
+    // pre-check has been bypassable: a substring missed a \u-escaped type, a
+    // length gate skipped a padded frame, and a first-byte '{' gate missed a
+    // leading-whitespace frame (JSON.parse tolerates the whitespace, so the host
+    // still sees t==="open-ssh"). Browser frames are all JSON.stringify output,
+    // so just parse every one (client maxPayload caps at 1 MiB) and drop by type.
+    let ft;
+    try {
+      ft = JSON.parse(s).t;
+    } catch {
+      /* not JSON: forward opaquely */
     }
+    if (ft === "open-ssh") return;
     for (const a of agents) {
       if (a.readyState === 1) {
         try {

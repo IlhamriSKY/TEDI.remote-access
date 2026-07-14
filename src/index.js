@@ -348,6 +348,10 @@ let sshStop = false;
 // context. Mirrored to the browser over the relay so its tabs match the app.
 let tabMeta = [];
 let tabMetaUnsub = null;
+// Last serialized tabMeta actually broadcast on a context change, so a context
+// tick that leaves the terminals array byte-identical (e.g. a cwd/active-file
+// change elsewhere) doesn't re-broadcast and force every browser to re-render.
+let lastTabMetaStr = "";
 
 function httpBaseFromRelay(relayUrl) {
   try {
@@ -403,11 +407,16 @@ async function sendSshConns(ctx) {
 
 async function startSshBridge(ctx, relayUrl, token) {
   sshStop = false;
+  // Connect REGARDLESS of SSH availability: this bridge is also the sole
+  // transport for tabmeta (workspace grouping + tab ordinals + AI-CLI status),
+  // which the native agent never carries. pollSsh and sendSshConns already no-op
+  // when SSH is absent, so on an SSH-less core the bridge simply carries tabmeta
+  // with no SSH sessions — the browser still gets correct workspace grouping for
+  // pure-local terminals instead of collapsing to a flat, header-less list.
   try {
     await ctx.invoke("ssh_list_sessions");
   } catch {
-    ctx.logger.info("ssh mirroring unavailable on this TEDI build; skipping");
-    return;
+    ctx.logger.info("ssh mirroring unavailable on this TEDI build; bridge carries tabmeta only");
   }
   connectSshRelay(ctx, relayUrl, token);
 }
@@ -565,6 +574,10 @@ async function pollSsh(ctx) {
       rows: s.rows,
       alive: s.alive,
       kind: "ssh",
+      // Real start time so the client's reconcileOrder sorts SSH newcomers by
+      // creation like local PTYs do (else they all sort as 0 and jump ahead of
+      // local tabs on first load). Optional field; undefined on older cores.
+      createdAt: s.createdAtMs,
     })),
   });
 }
@@ -698,6 +711,9 @@ export async function activate(ctx) {
     if (ctx.app && typeof ctx.app.onContextChange === "function") {
       tabMetaUnsub = ctx.app.onContextChange((c) => {
         tabMeta = c && Array.isArray(c.terminals) ? c.terminals : [];
+        const s = JSON.stringify(tabMeta);
+        if (s === lastTabMetaStr) return; // terminals unchanged: skip the broadcast
+        lastTabMetaStr = s;
         sendTabMeta();
       });
     }
