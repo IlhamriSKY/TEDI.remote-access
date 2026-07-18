@@ -2,6 +2,19 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.11.1] - 2026-07-18
+
+### Fixed
+
+- **A browser tab now shows the same title as the desktop app.** The client
+  derived each tab's title from its own copy of the terminal stream, so the
+  title went stale after a scrollback reset and was blank for a browser that
+  joined a running full-screen agent late. The host's captured title now travels
+  over the existing tab-metadata channel and is preferred over the locally
+  captured one, with local capture kept as the fallback. Needs TEDI >= 0.3.90 to
+  send the title; against an older host the client behaves exactly as before, so
+  the required TEDI version is unchanged (>= 0.3.73).
+
 ## [0.11.0] - 2026-07-14
 
 A stability, parity, security, and responsiveness pass. Needs TEDI >= 0.3.73
