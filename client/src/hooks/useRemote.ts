@@ -142,6 +142,13 @@ export function useRemote() {
   // to match the desktop Workspaces panel. Captured via xterm `onTitleChange` from
   // the mirrored stream, so no host change is needed.
   const [titles, setTitles] = useState<Record<string, string>>({});
+  // Host-authoritative window title from the desktop, keyed by session id (via the
+  // `tabmeta` frame). Preferred over the local `titles` capture above: the desktop
+  // captured the OSC 0/2 title live, so this is never stale after a scrollback
+  // reset and is present even for a browser that late-joins a running alt-screen
+  // agent (whose title already scrolled off the mirrored stream). Falls back to
+  // the local capture for hosts too old to send it.
+  const [hostTitles, setHostTitles] = useState<Record<string, string>>({});
   // Per-tab AI-CLI state mirrored from the desktop (keyed by session id). This is
   // the authoritative working indicator: it covers EVERY tab (not just the one
   // in view) and works on Windows, where the shell emits no OSC 133 C for the
@@ -546,12 +553,14 @@ export function useRemote() {
         case "tabmeta": {
           const nextOrd: Record<string, number> = {};
           const nextStatus: Record<string, AiCliState> = {};
+          const nextTitles: Record<string, string> = {};
           const nextWsById: Record<string, string> = {};
           // Preserve first-seen order + de-dup workspaces by id.
           const wsMap = new Map<string, RemoteWorkspace>();
           for (const it of f.items) {
             nextOrd[it.ptyId] = it.ordinal;
             if (it.state) nextStatus[it.ptyId] = it.state;
+            if (it.title) nextTitles[it.ptyId] = it.title;
             if (it.wsId) {
               nextWsById[it.ptyId] = it.wsId;
               if (!wsMap.has(it.wsId)) {
@@ -565,6 +574,7 @@ export function useRemote() {
           }
           setOrdinals(nextOrd);
           setStatus(nextStatus);
+          setHostTitles(nextTitles);
           setWsById(nextWsById);
           setWorkspaces([...wsMap.values()]);
           break;
@@ -1033,6 +1043,7 @@ export function useRemote() {
     busy,
     status,
     titles,
+    hostTitles,
     wsById,
     workspaces,
     selectWorkspace,

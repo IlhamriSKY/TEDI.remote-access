@@ -47,7 +47,9 @@ export type ServerFrame =
   // Sent by the host extension (via the relay): the desktop app's tab numbers
   // keyed by daemon ptyId, so the browser labels tabs the same as the app. Each
   // item also carries the tab's AI-CLI state (idle/working/blocking) so the
-  // browser shows the working indicator on every tab, and the owning workspace
+  // browser shows the working indicator on every tab, the host's OSC 0/2 window
+  // `title` (the running agent's task) so the tab reads the same as the desktop
+  // instead of a stale/blank local capture, and the owning workspace
   // (wsId/wsName/wsActive) so the browser groups tabs into the same workspaces.
   | {
       t: "tabmeta";
@@ -55,6 +57,7 @@ export type ServerFrame =
         ptyId: string;
         ordinal: number;
         state?: AiCliState;
+        title?: string;
         wsId?: string;
         wsName?: string;
         wsActive?: boolean;

@@ -347,7 +347,10 @@ function TabRow({
   const running = st === "working" || st === "blocking" || !!remote.busy[s.id];
   const accent = ssh ? "text-[#38bdf8]" : "text-terminal";
   const folder = folderName(s);
-  const title = remote.titles[s.id];
+  // Prefer the host's authoritative title (desktop's live OSC 0/2 capture, sent
+  // over tabmeta) so the tab reads the same as the app; fall back to the local
+  // xterm capture only for hosts too old to send it.
+  const title = remote.hostTitles[s.id] ?? remote.titles[s.id];
   const showTitle = title && title !== folder && title !== s.cwd;
   const iconColor = running
     ? st === "blocking"
