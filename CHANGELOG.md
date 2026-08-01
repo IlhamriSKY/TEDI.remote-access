@@ -2,6 +2,52 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.11.2] - 2026-08-01
+
+Needs TEDI >= 0.3.73 (unchanged). **Redeploy the relay and the website with this
+one**: the SSH open-error fix is a relay/host handshake, so the two halves have
+to match.
+
+### Fixed
+
+- **Resizing the browser can no longer resize the terminal in the desktop app.**
+  Dragging the browser window or rotating a phone was reshaping the shared PTY,
+  which reflowed the matching pane inside TEDI and shredded whatever full-screen
+  CLI was running there. The browser is now purely a mirror: it renders each
+  terminal at the host's real size and scales its own view, and it no longer has
+  a way to send a size at all.
+- **A failed SSH connect from the browser now says what actually went wrong.**
+  The relay answered the request the instant the frame reached any host agent,
+  before anything had been tried, so a connect that was refused, timed out, or
+  hit a host with no SSH bridge attached still reported success and the dialog
+  simply closed on nothing. The host now reports the real outcome back against
+  the request, and the relay holds the answer until it arrives, so the dialog
+  shows the actual reason. A host that never answers within 12 seconds is
+  reported as such instead of being silently treated as a success.
+- **Scrolling back through history works on a phone again.** Every touch that
+  started a scroll also snapped the view to the bottom, because the terminal was
+  being forced there on pointer-down, which is the first event of a scroll drag.
+  Scrolling up was therefore impossible. The terminal already follows new output
+  when you are at the bottom and jumps there when you type, so the forced snap
+  only ever cost the ability to look back.
+
+### Removed
+
+- **The "Fit host to my screen" setting.** Its only effect was resizing the host
+  terminal to the browser, which is the behaviour above. Every browser now uses
+  the mirror-and-scale view that was already the default.
+
+### Changed
+
+- **The refusal moved host-side.** The native agent and the SSH bridge now drop
+  browser `resize` frames instead of relying on the web client not to send them,
+  and the agent can no longer speak resize to the PTY daemon at all. This
+  regressed twice before (0.7.4, 0.8.6) precisely because the guard lived in the
+  client, where a cached bundle or a leftover browser setting defeated it. Update
+  the extension **and** redeploy the website; an old cached tab is harmless
+  against an updated host either way.
+- Dropped the now-unused `invoke:ssh_resize` permission from the manifest.
+
 ## [0.11.1] - 2026-07-18
 
 ### Fixed
