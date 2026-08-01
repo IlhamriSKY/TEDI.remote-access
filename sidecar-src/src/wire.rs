@@ -33,7 +33,10 @@ pub enum ClientMsg {
     Attach { req_id: u64, session_id: Uuid, cols: u16, rows: u16 },
     Detach { req_id: u64, session_id: Uuid },
     Write { req_id: u64, session_id: Uuid, data_b64: String },
-    Resize { req_id: u64, session_id: Uuid, cols: u16, rows: u16 },
+    // The daemon also accepts a `Resize`, but this agent deliberately cannot
+    // send one: the desktop owns every PTY's size, and a browser resizing the
+    // shared shell reflowed whatever was running on the PC. Leaving the variant
+    // out means no future call site can reach for it by accident.
     List { req_id: u64 },
     /// Permanently kill a session's PTY (mirrors TEDI core `ClientMsg::Close`);
     /// the daemon removes it and pushes `Exit` to every subscriber.

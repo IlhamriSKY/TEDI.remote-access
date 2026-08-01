@@ -296,29 +296,14 @@ async fn handle_browser_frame(
                 }
             }
         }
-        "resize" => {
-            // "Fit host to my screen": size the owned daemon PTY to the browser so
-            // its output fills the remote view at normal text. The browser only
-            // sends this in fit-host mode; it reflows the shared desktop pane, the
-            // deliberate trade-off the user opts into. Dimensions are clamped (no
-            // 0/absurd), and we only resize sessions we own. Spawned so a slow
-            // daemon resize never stalls the read loop. (SSH ids -> ssh_resize.)
-            if let (Some(id), Some(cols), Some(rows)) = (
-                v.get("id").and_then(parse_uuid),
-                v.get("cols").and_then(|x| x.as_u64()).and_then(clamp_dim),
-                v.get("rows").and_then(|x| x.as_u64()).and_then(clamp_dim),
-            ) {
-                let owned = sessions.lock().unwrap().contains_key(&id);
-                if owned {
-                    let daemon = daemon.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = daemon.resize(id, cols, rows).await {
-                            eprintln!("[agent] resize {id} failed: {e}");
-                        }
-                    });
-                }
-            }
-        }
+        // "resize" is deliberately UNHANDLED. The browser is a pure mirror: the
+        // desktop owns every PTY's size. Honouring it reflowed the same terminal
+        // inside the TEDI app the moment someone rotated a phone or dragged the
+        // browser window, which is how a running Claude/Codex frame got shredded
+        // on the PC. This has regressed twice (0.7.4, 0.8.6) because the refusal
+        // lived in the web client, where a stale cached bundle or a leftover
+        // localStorage flag defeats it. It lives HOST-side now: dropping the
+        // frame here is what actually makes it impossible. Do not re-add.
         "open" => {
             // "New tab from the browser": ask the daemon to spawn a fresh PTY.
             // Guarded by a session cap + rate limit so a browser can't fork-bomb

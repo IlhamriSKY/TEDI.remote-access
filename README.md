@@ -24,6 +24,11 @@ Runs on the three operating systems TEDI supports: Windows, macOS, and Linux.
 - **Mirror your open tabs.** See the exact terminals (and SSH tabs) open on your
   desktop, scrollback included. Typing drives the same PTY, so input shows on
   both. It is a mirror, not a separate shell.
+- **The browser never resizes your desktop.** The desktop owns every terminal's
+  size; the web renders each one at that size and scales its own view to fit. So
+  resizing the browser window, rotating a phone, or changing the web font cannot
+  reflow the pane on your PC or disturb a full-screen CLI running in it. The host
+  drops browser resize requests outright, so a stale cached tab can't either.
 - **Open new tabs from the browser.** The tab strip's **+** opens a **New
   terminal** on the host, or a **New SSH** connection.
 - **Safe SSH from the browser.** You can only open SSH hosts you have already
@@ -125,7 +130,7 @@ terminal is never reflowed.
 | Permission                                                               | Why                                                                                                                     |
 | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `invoke:shell_bg_spawn_direct` / `_logs` / `_kill`                       | Spawn, read the `READY` handshake of, and stop the agent.                                                               |
-| `invoke:ssh_list_sessions` / `_attach` / `_write` / `_close` / `_resize` | Mirror SSH tabs and let the browser type into / close them.                                                             |
+| `invoke:ssh_list_sessions` / `_attach` / `_write` / `_close`             | Mirror SSH tabs and let the browser type into / close them.                                                             |
 | `ssh:connections`                                                        | List your saved SSH hosts (metadata only) and open one by id for **New SSH**. The SSH credentials stay in the keychain. |
 | `settings:read`                                                          | Read the relay domain and host label.                                                                                   |
 | `secrets:read`                                                           | Read the agent token from the OS keychain.                                                                              |

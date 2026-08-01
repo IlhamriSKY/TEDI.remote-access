@@ -28,11 +28,6 @@ const FONT_KEY = "tedi-remote-fontsize";
 const FONTFAMILY_KEY = "tedi-remote-fontfamily";
 const LINEHEIGHT_KEY = "tedi-remote-lineheight";
 const THEME_KEY = "tedi-remote-theme";
-// Bumped from "tedi-remote-fit" so every existing browser resets to the new
-// safe default (mirror / OFF). The old key persisted "1" for everyone, because
-// the previous default was ON and the persist effect wrote it on mount — so
-// reusing the key would keep host-resize on and keep garbling the desktop.
-const FIT_KEY = "tedi-remote-fit2";
 const DEFAULT_FONT = 13;
 const clampFont = (n: number) => Math.min(28, Math.max(8, n || DEFAULT_FONT));
 const clampLineHeight = (n: number) => Math.min(1.6, Math.max(1.0, n || DEFAULT_LINE_HEIGHT));
@@ -88,28 +83,6 @@ function reconcileOrder(prev: SessionMeta[], incoming: SessionMeta[]): SessionMe
   return [...out, ...newcomers];
 }
 
-// How many cols/rows fit in `host` at the terminal's current cell size. This is
-// exactly what xterm's FitAddon computes (container px / cell px); we inline it
-// to avoid an addon whose published versions don't peer-match xterm 6. Reads the
-// renderer's measured cell size (no public API for it), so it's guarded.
-function proposeDims(term: Terminal, host: HTMLElement): { cols: number; rows: number } | null {
-  const core = (
-    term as unknown as {
-      _core?: {
-        _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } };
-      };
-    }
-  )._core;
-  const cell = core?._renderService?.dimensions?.css?.cell;
-  const cw = cell?.width;
-  const ch = cell?.height;
-  if (!cw || !ch) return null;
-  const w = host.clientWidth;
-  const h = host.clientHeight;
-  if (w < 2 || h < 2) return null;
-  return { cols: Math.max(2, Math.floor(w / cw)), rows: Math.max(1, Math.floor(h / ch)) };
-}
-
 export type Remote = ReturnType<typeof useRemote>;
 
 export function useRemote() {
@@ -159,17 +132,6 @@ export function useRemote() {
   // tabmeta. Only workspaces with a live (mirrored) terminal appear.
   const [wsById, setWsById] = useState<Record<string, string>>({});
   const [workspaces, setWorkspaces] = useState<RemoteWorkspace[]>([]);
-  // Default OFF: the browser is a PURE MIRROR that never resizes the shared host
-  // PTY, so opening the remote can't reflow/garble the desktop terminal (a
-  // full-screen TUI like Claude especially). Host-fill is an explicit opt-in
-  // ("Fit host to my screen"), which persists "1"; anything else is mirror mode.
-  const [fit, setFit] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(FIT_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
 
   const wsRef = useRef<WebSocket | null>(null);
   const terms = useRef<Map<string, TermEntry>>(new Map());
@@ -188,7 +150,6 @@ export function useRemote() {
   const sessionsRef = useRef<SessionMeta[]>([]);
   const pendingNewIds = useRef<Set<string> | null>(null);
   const pendingNewTimer = useRef<number | null>(null);
-  const fitRef = useRef(fit);
   // Reset the reconnect backoff only after a connection has proven stable (armed
   // in onopen, cleared in onclose); a socket that opens-then-instantly-drops
   // keeps backing off instead of hammering the relay ~1x/second.
@@ -367,22 +328,27 @@ export function useRemote() {
     if (!id) return;
     const entry = terms.current.get(id);
     if (entry) {
+      // Focus only — do NOT force scrollToBottom here. This runs on every
+      // pointerdown (TerminalHost's container onPointerDown), and on touch the
+      // start of a scroll-drag fires pointerdown first, so snapping to the
+      // bottom made scrolling up impossible on phones. xterm already scrolls to
+      // the bottom on user input (scrollOnUserInput) and follows new output when
+      // you're already at the bottom, so the forced scroll gave nothing but cost
+      // the ability to scroll back through history.
       entry.term.focus();
-      entry.term.scrollToBottom();
     }
   }, []);
 
-  // Two sizing modes, controlled by `fit`:
-  //  - fit ON ("Fit host to my screen", default): measure how many cols/rows fit
-  //    the browser at the current font, resize THIS xterm to that, and push the
-  //    size to the host PTY (a {t:resize} frame). The host produces output at the
-  //    browser's width, so the terminal is FULL-SIZE with normal, readable text
-  //    even when the desktop pane is tiny. Rendered 1:1 (no scaling). This does
-  //    reflow the shared desktop pane - the deliberate trade-off you opt into by
-  //    turning this on; only the ACTIVE terminal drives the host.
-  //  - fit OFF: never touch the host PTY. Mirror its real size and CSS-scale the
-  //    render DOWN to fit (never enlarge), so the desktop is never reflowed; a
-  //    small host stays at its native size rather than being blown up huge.
+  // The browser is a PURE MIRROR. It adopts each host PTY's real cols/rows and
+  // CSS-scales the render DOWN to fit (never enlarges, so a small host stays at
+  // its native size instead of being blown up blurry). It never sends a size to
+  // the host, so resizing the browser window or rotating a phone cannot reflow
+  // the shared terminal inside the TEDI desktop app.
+  //
+  // There used to be a "Fit host to my screen" mode here that resized the host
+  // PTY to the browser. It filled a phone screen nicely and shredded whatever
+  // full-screen CLI was running on the PC, so it is gone; the host now drops
+  // browser resize frames outright (see the agent + SSH bridge).
   const fitTerminal = useCallback(
     (id: string | null) => {
       if (!id) return;
@@ -390,29 +356,9 @@ export function useRemote() {
       const node = entry?.term.element;
       const host = entry?.el;
       if (!entry || !node || !host) return;
-      if (fitRef.current) {
-        node.style.transform = "";
-        node.style.transformOrigin = "";
-        if (id !== activeIdRef.current) return; // only the visible terminal sizes the host
-        requestAnimationFrame(() => {
-          const live = terms.current.get(id);
-          if (!live || live.el !== host || !fitRef.current || id !== activeIdRef.current) return;
-          const dims = proposeDims(live.term, host);
-          if (!dims) return;
-          if (live.term.cols !== dims.cols || live.term.rows !== dims.rows) {
-            try {
-              live.term.resize(dims.cols, dims.rows);
-            } catch {
-              /* ignore */
-            }
-          }
-          send({ t: "resize", id, cols: dims.cols, rows: dims.rows });
-        });
-        return;
-      }
       requestAnimationFrame(() => {
         const live = terms.current.get(id);
-        if (!live || live.el !== host || fitRef.current) return;
+        if (!live || live.el !== host) return;
         const el = live.term.element;
         if (!el) return;
         el.style.transformOrigin = "center center";
@@ -430,7 +376,7 @@ export function useRemote() {
         el.style.transform = `scale(${Math.min(1, cw / tw, ch / th)})`;
       });
     },
-    [send],
+    [],
   );
 
   // --- frame handling -----------------------------------------------------
@@ -439,10 +385,8 @@ export function useRemote() {
       const bytes = b64 ? b64ToBytes(b64) : new Uint8Array(0);
       const entry = terms.current.get(id);
       if (entry) {
-        // In mirror mode (fit OFF) adopt the host PTY's real size. In fit-host
-        // mode the browser owns the size (fitTerminal drives it), so don't snap
-        // back to the host's size.
-        if (!fitRef.current && (entry.term.cols !== cols || entry.term.rows !== rows)) {
+        // Adopt the host PTY's real size: the desktop is the only size authority.
+        if (entry.term.cols !== cols || entry.term.rows !== rows) {
           try {
             entry.term.resize(cols, rows);
           } catch {
@@ -484,17 +428,14 @@ export function useRemote() {
           break;
         case "sessions": {
           const items = f.items;
-          // In mirror mode (fit OFF) adopt each host PTY's real size; in fit-host
-          // mode the browser owns the size (fitTerminal drives the active one).
-          if (!fitRef.current) {
-            for (const it of items) {
-              const e = terms.current.get(it.id);
-              if (e && (e.term.cols !== it.cols || e.term.rows !== it.rows)) {
-                try {
-                  e.term.resize(it.cols, it.rows);
-                } catch {
-                  /* ignore */
-                }
+          // Adopt each host PTY's real size: the desktop is the size authority.
+          for (const it of items) {
+            const e = terms.current.get(it.id);
+            if (e && (e.term.cols !== it.cols || e.term.rows !== it.rows)) {
+              try {
+                e.term.resize(it.cols, it.rows);
+              } catch {
+                /* ignore */
               }
             }
           }
@@ -833,7 +774,7 @@ export function useRemote() {
   useEffect(() => {
     localStorage.setItem(FONT_KEY, String(fontSize));
     for (const { term } of terms.current.values()) term.options.fontSize = fontSize;
-    // Font change alters cell size, so re-scale every terminal in fit mode.
+    // Font change alters cell size, so re-scale every terminal.
     for (const id of terms.current.keys()) fitTerminal(id);
   }, [fontSize, fitTerminal]);
 
@@ -841,7 +782,7 @@ export function useRemote() {
   const resetFont = useCallback(() => setFontSize(DEFAULT_FONT), []);
 
   // Font family -> all terminals + persist. Changing the family alters cell
-  // width, so re-scale every terminal in fit mode.
+  // width, so re-scale every terminal.
   useEffect(() => {
     fontFamilyRef.current = fontFamily;
     try {
@@ -854,7 +795,7 @@ export function useRemote() {
     for (const id of terms.current.keys()) fitTerminal(id);
   }, [fontFamily, fitTerminal]);
 
-  // Line spacing -> all terminals + persist (changes row height -> re-fit).
+  // Line spacing -> all terminals + persist (changes row height -> re-scale).
   const setLineHeight = useCallback((n: number) => setLineHeightState(clampLineHeight(n)), []);
   useEffect(() => {
     lineHeightRef.current = lineHeight;
@@ -889,19 +830,6 @@ export function useRemote() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", themeRef.current === "dark");
   }, []);
-
-  // Fit mode: persist, mirror to the ref, and re-scale every live terminal
-  // (turning fit off clears their transforms; turning it on re-fits them).
-  useEffect(() => {
-    fitRef.current = fit;
-    try {
-      localStorage.setItem(FIT_KEY, fit ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-    for (const id of terms.current.keys()) fitTerminal(id);
-  }, [fit, fitTerminal]);
-  const toggleFit = useCallback(() => setFit((v) => !v), []);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -1022,8 +950,6 @@ export function useRemote() {
     setFontFamily,
     lineHeight,
     setLineHeight,
-    fit,
-    toggleFit,
     fitTerminal,
     attachTerminal,
     focusActive,

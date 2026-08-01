@@ -594,6 +594,15 @@ function onSshEvent(rid, e) {
 
 function handleSshRelayFrame(ctx, m) {
   if (!m || typeof m.t !== "string") return;
+  // `t:"resize"` is deliberately absent from every branch below. The browser is a
+  // pure mirror and the DESKTOP owns each PTY's size; honouring a browser resize
+  // reflowed the same SSH terminal inside the TEDI app the moment someone rotated
+  // a phone or dragged the browser window, shredding whatever full-screen CLI was
+  // running on the PC. The refusal used to live in the web client, where a stale
+  // cached bundle defeats it, so it lives here and in the native agent instead
+  // (the relay broadcasts every frame to BOTH sources, so both must drop it).
+  // Do not re-add.
+  //
   // Workspace targeting. The browser can ask the desktop to switch to (or create)
   // a workspace so a terminal/SSH it opens next is adopted there. The native agent
   // does the actual terminal spawn on {t:"open"}; here we only move/create the
@@ -639,24 +648,6 @@ function handleSshRelayFrame(ctx, m) {
       // drops it from the published list).
       sshSend({ t: "exit", id: m.id, code: 0 });
     }
-  } else if (m.t === "resize" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
-    // "Fit host to my screen": resize the SSH PTY to the browser so its output
-    // fills the remote view at normal text. This reflows the same SSH terminal in
-    // the desktop app -- the deliberate trade-off of fit-host mode (mirrors the
-    // native agent's daemon resize). Gated to sessions we mirror, dims bounded.
-    const id = parseInt(m.id.slice(4), 10);
-    const cols = m.cols | 0;
-    const rows = m.rows | 0;
-    if (
-      !Number.isNaN(id) &&
-      sshAttached.has(id) &&
-      cols > 0 &&
-      cols <= 1000 &&
-      rows > 0 &&
-      rows <= 1000
-    ) {
-      ctx.invoke("ssh_resize", { id, cols, rows }).catch(() => {});
-    }
   } else if (m.t === "client_join") {
     // Re-publish the session list (no re-attach: that would add a duplicate
     // sink). SSH late-joiners get live output, not replayed scrollback.
@@ -669,23 +660,42 @@ function handleSshRelayFrame(ctx, m) {
     // any browser-sent open-ssh, so reaching here means the action was
     // re-authenticated. We open the connection BY ID via the host; the SSH
     // password / key are read host-side from the keychain and never seen here.
+    //
+    // Report the outcome back to the relay via `open-ssh-result` (keyed by the
+    // relay's reqId) so it can answer the still-open POST /api/open-ssh and the
+    // browser modal can show the REAL reason a connect failed — instead of the
+    // relay's old fire-and-forget 200 that fired before we even tried.
+    const reqId = m.reqId;
+    const reply = (ok, error) => {
+      if (reqId != null) sshSend({ t: "open-ssh-result", reqId, ok: !!ok, error: error || undefined });
+    };
     const id = typeof m.connectionId === "string" ? m.connectionId : "";
-    if (id && ctx.ssh && typeof ctx.ssh.openConnection === "function") {
+    if (!id) {
+      reply(false, "missing connection id");
+    } else if (!ctx.ssh || typeof ctx.ssh.openConnection !== "function") {
+      // Older TEDI core without the ssh:connections bridge: nothing can open it.
+      reply(false, "this TEDI build can't open SSH from the browser (update TEDI)");
+    } else {
       // Switch to the requested workspace FIRST (if any) so the SSH tab opens
       // there, then open it. The relay forwards m.wsId from POST /api/open-ssh.
       maybeSwitchWorkspace(ctx, m.wsId).then(() => {
         ctx.ssh
           .openConnection(id)
           .then((r) => {
-            if (!r || !r.ok) {
+            const ok = !!(r && r.ok);
+            if (!ok) {
               ctx.logger.warn("open-ssh refused", r && r.error);
               ctx.ui.toast("Remote SSH: " + ((r && r.error) || "could not open"), {
                 variant: "error",
               });
             }
             // On success the new SSH tab streams in via the next pollSsh.
+            reply(ok, r && r.error);
           })
-          .catch((e) => ctx.logger.warn("open-ssh error", e));
+          .catch((e) => {
+            ctx.logger.warn("open-ssh error", e);
+            reply(false, (e && e.message) || "open failed");
+          });
       });
     }
   } else if (m.t === "ping") {

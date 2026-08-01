@@ -9,8 +9,8 @@ import type { Remote } from "@/hooks/useRemote";
 
 // App + terminal settings on the shared <Modal> shell. Everything applies live
 // and persists to localStorage via the hook, so there is no Save step (the
-// footer just closes). Covers the terminal font, text size, line spacing,
-// fit-to-window, and theme.
+// footer just closes). Covers the terminal font, text size, and line spacing.
+// Nothing here can change the host: the browser only ever restyles its own view.
 export function SettingsModal({ remote, onClose }: { remote: Remote; onClose: () => void }) {
   return (
     <Modal title="Settings" onClose={onClose} className="max-w-md">
@@ -54,20 +54,6 @@ export function SettingsModal({ remote, onClose }: { remote: Remote; onClose: ()
             />
           </Row>
 
-          <Row
-            label="Fit host to my screen"
-            hint="Off (recommended): mirror the desktop at its real size and scale to fit — never touches the app. On: resize the shared host terminal to fill this screen, which also reshapes it in the TEDI desktop app and can garble a full-screen TUI like Claude."
-          >
-            <Button
-              variant="outline"
-              size="xs"
-              aria-pressed={remote.fit}
-              onClick={remote.toggleFit}
-              className={cn("w-12", remote.fit && "border-primary/60 text-foreground")}
-            >
-              {remote.fit ? "On" : "Off"}
-            </Button>
-          </Row>
         </Section>
       </ModalBody>
       <ModalFooter>

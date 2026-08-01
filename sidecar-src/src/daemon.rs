@@ -236,17 +236,7 @@ impl DaemonClient {
         }
     }
 
-    /// Resize a session's PTY. Called when the browser has "Fit host to my
-    /// screen" on, so the shared PTY produces output at the browser's width
-    /// (this reflows the matching desktop terminal -- the intended trade-off).
-    pub async fn resize(&self, id: Uuid, cols: u16, rows: u16) -> Result<(), String> {
-        match self
-            .request(|rid| ClientMsg::Resize { req_id: rid, session_id: id, cols, rows })
-            .await?
-        {
-            DaemonMsg::Ok { .. } => Ok(()),
-            DaemonMsg::Err { message, .. } => Err(message),
-            o => Err(format!("resize: unexpected {o:?}")),
-        }
-    }
+    // No `resize`. The desktop app owns every PTY's size; a browser resizing the
+    // shared shell reflowed whatever was running on the PC (see the dropped
+    // "resize" frame in `handle_browser_frame`).
 }

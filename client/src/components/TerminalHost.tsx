@@ -7,13 +7,11 @@ import type { Remote } from "@/hooks/useRemote";
 // Every mirrored session keeps a mounted xterm so switching tabs is instant and
 // background terminals stay live. Inactive panes use `invisible
 // pointer-events-none` (visibility, not display:none) so xterm can still measure
-// glyph metrics correctly. In "Fit host to my screen" mode (the default) the
-// active terminal is sized to the browser and the host PTY is resized to match,
-// so the view fills the pane at normal text size (it reflows the desktop pane,
-// the opt-in trade-off); just clip. Fit off mirrors the host's real size and
-// CSS-scales DOWN to fit, so center it and clip.
+// glyph metrics correctly. Each terminal is rendered at the HOST's real size and
+// CSS-scaled DOWN to fit, so it is centred and clipped. Resizing here only ever
+// changes that scale factor; the host PTY is never touched.
 export function TerminalHost({ remote }: { remote: Remote }) {
-  const { sessions, activeId, fit, attachTerminal, focusActive, fitTerminal } = remote;
+  const { sessions, activeId, attachTerminal, focusActive, fitTerminal } = remote;
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -21,9 +19,9 @@ export function TerminalHost({ remote }: { remote: Remote }) {
     fitTerminal(activeId);
   }, [activeId, focusActive, fitTerminal]);
 
-  // Re-fit the active terminal when the viewport/container resizes (fit mode).
-  // Also re-fit on a real window resize/orientation change so rotating a phone
-  // or resizing the browser re-fills the screen immediately.
+  // Re-scale the active terminal when the viewport/container resizes, including
+  // on a real window resize / orientation change so rotating a phone re-fills
+  // the screen immediately. CSS scale only; the host PTY keeps its own size.
   useEffect(() => {
     const el = containerRef.current;
     let t: number | undefined;
@@ -58,13 +56,11 @@ export function TerminalHost({ remote }: { remote: Remote }) {
           className={cn(
             // Near-full-bleed (a 6px inset for breathing room). The inset is set
             // via positioning, not padding, so clientWidth/Height measure the
-            // real available box (the fit-to-window scale math needs the true size).
+            // real available box (the scale math needs the true size).
             "absolute inset-1.5",
-            // fit ON ("Fit host to my screen"): the xterm is sized to fill this
-            // box (the host PTY is resized to match), so just clip. fit OFF
-            // (mirror): the xterm is at the host size and CSS-scaled down, so
-            // center it and clip the overflow.
-            fit ? "overflow-hidden" : "flex items-center justify-center overflow-hidden",
+            // The xterm is at the host's size and CSS-scaled down, so center it
+            // and clip the overflow.
+            "flex items-center justify-center overflow-hidden",
             s.id === activeId ? "visible z-10" : "pointer-events-none invisible",
           )}
         />

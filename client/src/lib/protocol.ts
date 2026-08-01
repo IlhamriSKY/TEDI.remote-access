@@ -70,12 +70,13 @@ export type ServerFrame =
 // bridge), built inline via `send` in useRemote:
 //   { t:"hello" } | { t:"ping" } | { t:"input"; id; b64 }
 //   | { t:"open"; cols; rows } | { t:"close"; id }
-//   | { t:"resize"; id; cols; rows }
-// "resize" is sent ONLY in "Fit host to my screen" mode (fit ON), for the active
-// terminal, to size the host PTY to the browser so the view is full-size at
-// normal text. This DOES reflow the shared desktop pane - the deliberate trade-
-// off of that mode. In mirror mode (fit OFF) the browser adopts the host's real
-// cols/rows and scales DOWN to fit client-side, never touching the host.
+// There is deliberately NO resize frame. The browser is a pure mirror: it adopts
+// each host PTY's real cols/rows and scales DOWN to fit client-side, so nothing
+// the user does in the browser (window drag, phone rotation, font change) can
+// reflow the shared terminal in the TEDI desktop app. The host drops any resize
+// frame anyway, so an old cached client cannot bring the behaviour back.
+// `open` still carries cols/rows: that sizes a BRAND-NEW pty at birth, which
+// reshapes nothing that already exists.
 //
 // Opening a SAVED SSH connection is deliberately NOT a WS frame: the browser
 // POSTs /api/open-ssh with the user's LOGIN password (re-auth), the relay

@@ -42,6 +42,12 @@ jobs:
           node --check extension.js
           node --check server/server.js
 
+      # The browser must never be able to resize a host PTY (it reflows the
+      # desktop pane and shreds a running full-screen CLI). This regressed twice
+      # while the guard lived in the web client, so it is asserted here.
+      - name: Browser cannot resize the desktop
+        run: node check-no-host-resize.mjs
+
   agent:
     name: Agent compiles
     runs-on: windows-latest

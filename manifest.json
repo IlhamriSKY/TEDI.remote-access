@@ -16,7 +16,6 @@
     "invoke:ssh_attach",
     "invoke:ssh_write",
     "invoke:ssh_close",
-    "invoke:ssh_resize",
     "ssh:connections",
     "workspaces:manage",
     "settings:read",

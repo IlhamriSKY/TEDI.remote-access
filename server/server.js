@@ -548,9 +548,12 @@ const server = http.createServer(async (req, res) => {
     // Forward to the host agent(s). The native PTY agent ignores it; the SSH
     // bridge opens the saved connection by id (keychain creds read host-side).
     // Forward an optional target workspace so the host opens the SSH tab there.
+    // Tag the request so the host's SSH bridge can echo the outcome back to us.
+    const reqId = crypto.randomBytes(9).toString("base64url");
     const frame = JSON.stringify({
       t: "open-ssh",
       connectionId,
+      reqId,
       ...(typeof body.wsId === "string" && body.wsId ? { wsId: body.wsId } : {}),
     });
     let delivered = 0;
@@ -566,7 +569,26 @@ const server = http.createServer(async (req, res) => {
     }
     if (delivered === 0) return json(res, 503, { ok: false, error: "host is offline" });
     log(`open-ssh requested by '${sess.u}'`);
-    return json(res, 200, { ok: true });
+    // Hold the response until the SSH bridge reports the real outcome (the native
+    // PTY agent ignores open-ssh and never replies). Times out only when no SSH
+    // bridge is connected to answer — which is exactly the case the old false 200
+    // hid — so we surface it as an actionable error instead of a silent no-op.
+    const result = await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        openSshPending.delete(reqId);
+        resolve({ ok: false, timeout: true });
+      }, OPEN_SSH_RESULT_TIMEOUT_MS);
+      if (timer.unref) timer.unref();
+      openSshPending.set(reqId, { resolve, timer });
+    });
+    if (result.ok) return json(res, 200, { ok: true });
+    if (result.timeout) {
+      return json(res, 504, {
+        ok: false,
+        error: "host did not respond; make sure TEDI is open on your PC and try again",
+      });
+    }
+    return json(res, 502, { ok: false, error: result.error || "could not open SSH on the host" });
   }
 
   // Issue a one-time WS ticket for a header-less source (the SSH bridge), gated
@@ -617,6 +639,17 @@ const agents = new Set();
 const sessionsBySource = new Map(); // ws -> sessions items[]
 const drainTimers = new Map(); // ws -> timer keeping a dropped source's sessions listed briefly
 let agentName = null;
+// In-flight POST /api/open-ssh requests awaiting the host's `open-ssh-result`
+// frame, keyed by a per-request id. Lets the HTTP response carry the REAL open
+// outcome (opened / not-pinned / bridge-offline / …) instead of the old
+// fire-and-forget 200 that fired the moment the frame reached ANY agent — the
+// native PTY agent ignores open-ssh, so that 200 was a false success and the
+// browser modal could never say why an SSH open actually failed.
+// NOTE: this couples the relay and the extension — an old ext build never sends
+// `open-ssh-result`, so it would always time out here. Deploy the relay and the
+// Remote Access extension together.
+const openSshPending = new Map(); // reqId -> { resolve, timer }
+const OPEN_SSH_RESULT_TIMEOUT_MS = 12_000;
 const clients = new Set();
 let lastClientJoin = 0;
 
@@ -709,6 +742,18 @@ wssAgent.on("connection", (ws) => {
         broadcastClients(JSON.stringify({ t: "host", status: "online", name: agentName }));
       }
       return; // host status is derived from connections, not forwarded raw
+    }
+    if (o && o.t === "open-ssh-result") {
+      // The SSH bridge answering a POST /api/open-ssh: resolve that pending HTTP
+      // request with the real outcome. Host->relay control frame only — never
+      // forward it to browsers.
+      const pend = openSshPending.get(o.reqId);
+      if (pend) {
+        openSshPending.delete(o.reqId);
+        clearTimeout(pend.timer);
+        pend.resolve({ ok: !!o.ok, error: typeof o.error === "string" ? o.error : undefined });
+      }
+      return;
     }
     // data / attached / exit / pong -> straight to browsers (keyed by session id)
     broadcastClients(s);
