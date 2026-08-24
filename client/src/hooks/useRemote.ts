@@ -273,6 +273,46 @@ export function useRemote() {
       } catch {
         /* onTitleChange unsupported -> no title for this term */
       }
+      // Clipboard, so a mirrored session (an SSH one included) can take a token
+      // pasted from this device and hand a URL back to it.
+      //
+      // Paste is deliberately NOT `navigator.clipboard.readText()`: returning
+      // false from the handler makes xterm skip the key WITHOUT calling
+      // preventDefault, so the browser runs its own paste command, fires the
+      // `paste` event on xterm's textarea, and xterm's built-in handler brackets
+      // and sends it. That needs no clipboard-read permission and no async hop -
+      // whereas letting xterm handle the key maps Ctrl+V to ^V and cancels the
+      // event, which is why pasting did nothing here at all.
+      //
+      // Copy has no such native path (the browser would copy the empty textarea,
+      // not the buffer), so it writes the selection explicitly. Ctrl+C is left
+      // alone: it is SIGINT on a remote shell, and this client has no reliable
+      // way to offer a second press.
+      term.attachCustomKeyEventHandler((e) => {
+        if (e.type !== "keydown" || e.altKey) return true;
+        const mod = e.ctrlKey || e.metaKey;
+        if (!mod) return true;
+        const key = e.key.toLowerCase();
+        if (key === "v") return false; // hand it to the browser's paste
+        if (key === "c" && e.shiftKey) {
+          // Cancel this one: Ctrl+Shift+C / Cmd+Shift+C is Chrome's
+          // inspect-element, which would open DevTools over the session if the
+          // key reached the browser the way the paste chord deliberately does.
+          e.preventDefault();
+          const sel = term.getSelection();
+          if (sel) void navigator.clipboard?.writeText(sel).catch(() => {});
+          return false;
+        }
+        return true;
+      });
+      // Select-to-copy, the PuTTY convention the desktop panes also implement:
+      // releasing a left-drag puts the selection on this device's clipboard.
+      el.addEventListener("mouseup", (ev) => {
+        if ((ev as MouseEvent).button !== 0) return;
+        const sel = term.getSelection();
+        if (sel) void navigator.clipboard?.writeText(sel).catch(() => {});
+      });
+
       term_open(term, el);
       term.onData((data) => {
         let out = data;
