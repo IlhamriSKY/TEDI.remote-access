@@ -28,6 +28,7 @@ function normalizeRelayUrl(input) {
   return s;
 }
 
+/** @type {import("../tedi").ExtensionContext | null} */
 let ctxRef = null;
 let handle = null;
 let booting = false;
@@ -703,6 +704,7 @@ function handleSshRelayFrame(ctx, m) {
   }
 }
 
+/** @param {import("../tedi").ExtensionContext} ctx */
 export async function activate(ctx) {
   ctxRef = ctx;
 

@@ -1,4 +1,5 @@
 {
+  "$schema": "./manifest.schema.json",
   "id": "tedi.remote-access",
   "name": "Remote Access",
   "version": "0.11.2",

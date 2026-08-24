@@ -1,0 +1,20 @@
+{
+  "//": "Turns on type checking for plain JavaScript against tedi.d.ts, so a typo in a `ctx.*` call is an editor squiggle instead of a runtime TypeError inside an async handler. `strict` is off because this extension predates the checker; new extensions scaffolded by `tedi ext create` start strict.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "checkJs": true,
+    "strict": false,
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*.js",
+    "tedi.d.ts"
+  ]
+}
