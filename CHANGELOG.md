@@ -2,6 +2,16 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.11.3] - 2026-08-24
+
+### Added
+
+- **Copy and paste in a mirrored terminal from the browser.** A mirrored session, SSH included, could not take a token pasted from the device looking at it, which is most of what a browser client is for. Paste deliberately avoids `navigator.clipboard.readText`: returning `false` from the key handler makes xterm skip the key without calling `preventDefault`, so the browser runs its own paste command, fires the `paste` event on xterm's textarea, and xterm's handler brackets and sends it, with no clipboard-read permission and no async hop. Letting xterm handle the key instead maps Ctrl+V to a literal `^V` and cancels the event, which is why pasting did nothing at all. Copy has no equivalent native path, since the browser would copy the empty textarea rather than the buffer, so it writes the selection explicitly. Bare Ctrl+C is left alone: it is SIGINT on a remote shell. **Redeploy the website with this one.**
+
+### Changed
+
+- **Built against TEDI's published extension types.** TEDI 0.4.26 ships `tedi.d.ts`, a standalone typed contract for `ctx`, and a JSON Schema for `manifest.json`. Both now live in this repo, written by `tedi ext types`, alongside a `jsconfig.json` that turns type checking on for plain JavaScript. A misspelled `ctx.*` call is an editor error now rather than a `TypeError` raised inside an async handler, where it surfaces as an unhandled rejection nobody sees. `build.mjs` is the canonical copy shared across the TEDI extensions: it reads its entry point, output path and banner from `manifest.json`, so it holds nothing specific to this extension. The manifest gains a `$schema` line, which every parser ignores and which gives the file completion while it is edited. No behaviour changes; the bundle esbuild produces is byte-identical apart from its banner comment.
+
 ## [0.11.2] - 2026-08-01
 
 Needs TEDI >= 0.3.73 (unchanged). **Redeploy the relay and the website with this
