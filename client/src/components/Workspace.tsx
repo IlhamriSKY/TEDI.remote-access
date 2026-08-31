@@ -4,9 +4,11 @@ import { Header } from "@/components/Header";
 import { Sidebar } from "@/components/Sidebar";
 import { TerminalHost } from "@/components/TerminalHost";
 import { MobileKeys } from "@/components/MobileKeys";
+import { useSessionShortcuts } from "@/hooks/useSessionShortcuts";
 import type { Remote } from "@/hooks/useRemote";
 
 export function Workspace({ remote }: { remote: Remote }) {
+  useSessionShortcuts(remote);
   // Sidebar starts open on a desktop-width viewport, closed on a phone (where it
   // is an overlay drawer). Toggled from the header.
   const [sidebarOpen, setSidebarOpen] = useState(

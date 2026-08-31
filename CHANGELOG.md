@@ -2,6 +2,23 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.12.0] - 2026-08-31
+
+Needs TEDI **>= 0.4.35** for tab pin/rename and workspace rename; every other
+change here works on any host. The extension feature-detects, so on an older TEDI
+those three controls simply do not appear rather than failing when used.
+**Redeploy the website with this one.**
+
+### Added
+
+- **Pin a tab, rename a tab, rename a workspace — from the browser.** All three are decided by the desktop, not here: it owns tab order, and it republishes each tab's title on every context change, so a rename made in the browser was overwritten by the very next frame. The browser now asks the desktop through `ctx.app.setTabPinned` / `renameTab` / `renameWorkspace` and reads the answer back on the next `tabmeta`, which is why the pin marker and the new name appear a beat later rather than optimistically. Tabs get an overflow menu rather than a right-click, because the phone this client is mostly used from has no right-click; a workspace can also be renamed by double-clicking its name. Pinned tabs float to the top of their workspace. A blank tab name drops back to the derived one; a blank workspace name is refused, because a workspace has no derived name to fall back on.
+- **Keyboard navigation between terminals.** `Ctrl+Shift+Left` / `Ctrl+Shift+Right` step through the mirrored sessions and wrap, and `Ctrl+Alt+1`…`9` jump straight to one. The chords are boxed in from both sides: the terminal has to keep every key a TUI needs, including the bare `Shift+Tab` Claude Code binds to cycle modes and readline's bare-Ctrl and Alt families, while the browser reserves `Ctrl+Tab` and `Alt+Arrow` for itself and will not let a page take them, so the desktop app's own pair could not be reused. They are listed in Settings so they are discoverable rather than folklore.
+
+### Changed
+
+- **The terminal is drawn at a real font size instead of a scaled-down picture of one.** Every mirrored terminal was rendered at the host's grid size and then shrunk with a CSS transform, which resampled glyphs that had already been drawn: on a 378-pixel-wide phone a 120x30 host came out as 5.7-pixel text, blurred, floating in the middle of the pane with dead bands above and below, and with the cursor painted in the wrong place. Because the transform only ever shrank, a small host stayed a small island of text marooned in a large window. The client now picks the largest whole font size at which the host's grid still fits and renders at it, so the text is sharp at any size and the grid fills the pane. Nothing about the host changes; this client still cannot resize a desktop PTY, and `check-no-host-resize` still proves it. Text size in Settings gained an **Auto** mode, on by default; turning it off zooms and the pane pans, which also means a very wide host is now readable by zooming in rather than unreadable at any setting.
+- **A phone's on-screen keyboard no longer covers the terminal.** The layout viewport does not shrink when the keyboard opens, so a full-height shell kept its height and the bottom of the app — the terminal and the helper-key row — slid underneath it. The shell is sized from `visualViewport` now, which is the only thing that reports the space actually left.
+
 ## [0.11.3] - 2026-08-24
 
 ### Added

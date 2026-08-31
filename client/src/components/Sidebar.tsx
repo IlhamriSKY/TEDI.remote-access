@@ -6,8 +6,12 @@ import {
   IconChevronRight,
   IconClose,
   IconFolder,
+  IconMore,
+  IconPin,
+  IconRename,
   IconSsh,
   IconTerminal,
+  IconUnpin,
 } from "@/lib/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { NewSshModal } from "@/components/NewSshModal";
@@ -69,6 +73,12 @@ export function Sidebar({
   const [newTermOpen, setNewTermOpen] = useState(false);
   const [newWsOpen, setNewWsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Which row is being renamed inline, or null. Owned here so switching tabs or
+  // renaming another row cancels the one in flight.
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  // Same, for a workspace header. Separate from `renamingId` so a tab and a
+  // workspace can never both be in edit mode.
+  const [renamingWsId, setRenamingWsId] = useState<string | null>(null);
   const [width, setWidth] = useState(() => {
     try {
       return clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_W_KEY)));
@@ -86,7 +96,8 @@ export function Sidebar({
     e.preventDefault();
     const startX = e.clientX;
     const startW = widthRef.current;
-    const onMove = (ev: PointerEvent) => setWidth(clampSidebarWidth(startW + (ev.clientX - startX)));
+    const onMove = (ev: PointerEvent) =>
+      setWidth(clampSidebarWidth(startW + (ev.clientX - startX)));
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
@@ -121,6 +132,19 @@ export function Sidebar({
     groups.push({ id: WS_OTHER, name: "", tabs: sessions });
   }
 
+  // Pinned tabs float to the top of their workspace, the same rule the desktop
+  // applies to its tab strip (sortPinnedFirst). Done here rather than by
+  // reordering `sessions`, because the host owns the desktop's order and the
+  // browser owns its own: this is a render-time view of the pin state that
+  // arrives over tabmeta. A stable partition, so pinning one tab does not
+  // shuffle the rest.
+  for (const g of groups) {
+    const pinnedRows = g.tabs.filter((t) => remote.pinnedIds[t.id]);
+    if (pinnedRows.length && pinnedRows.length < g.tabs.length) {
+      g.tabs = [...pinnedRows, ...g.tabs.filter((t) => !remote.pinnedIds[t.id])];
+    }
+  }
+
   const selectTab = (id: string) => {
     remote.setActiveId(id);
     // Dismiss the overlay drawer on a phone; leave the desktop sidebar open.
@@ -138,11 +162,7 @@ export function Sidebar({
   return (
     <>
       {open && (
-        <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
-          onClick={onClose}
-          aria-hidden
-        />
+        <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={onClose} aria-hidden />
       )}
       <aside
         aria-label="Workspaces and terminals"
@@ -154,7 +174,7 @@ export function Sidebar({
           // itself so the header + tab rows clear the notch / side cutout / home
           // indicator on notched phones (no-op on desktop; insets resolve to 0).
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:!w-72 max-md:max-w-[85%] max-md:shadow-xl",
-          "max-md:pt-[env(safe-area-inset-top)] max-md:pl-[env(safe-area-inset-left)] max-md:pb-[env(safe-area-inset-bottom)]",
+          "max-md:pt-[env(safe-area-inset-top)] max-md:pb-[env(safe-area-inset-bottom)] max-md:pl-[env(safe-area-inset-left)]",
           open ? "flex" : "hidden",
         )}
       >
@@ -204,7 +224,9 @@ export function Sidebar({
 
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {sessions.length === 0 ? (
-            <p className="text-muted-foreground px-3 py-4 text-center text-xs">No terminals open.</p>
+            <p className="text-muted-foreground px-3 py-4 text-center text-xs">
+              No terminals open.
+            </p>
           ) : (
             groups.map((g) => (
               <WorkspaceGroup
@@ -219,6 +241,16 @@ export function Sidebar({
                 activeId={activeId}
                 onSelectTab={selectTab}
                 onCloseTab={setPendingClose}
+                renamingId={renamingId}
+                onSetRenaming={(id) => {
+                  setRenamingWsId(null);
+                  setRenamingId(id);
+                }}
+                renamingWs={renamingWsId === g.id}
+                onSetRenamingWs={(id) => {
+                  setRenamingId(null);
+                  setRenamingWsId(id);
+                }}
               />
             ))
           )}
@@ -258,6 +290,10 @@ function WorkspaceGroup({
   activeId,
   onSelectTab,
   onCloseTab,
+  renamingId,
+  onSetRenaming,
+  renamingWs,
+  onSetRenamingWs,
 }: {
   group: Group;
   showHeader: boolean;
@@ -269,17 +305,34 @@ function WorkspaceGroup({
   activeId: string | null;
   onSelectTab: (id: string) => void;
   onCloseTab: (s: SessionMeta) => void;
+  renamingId: string | null;
+  onSetRenaming: (id: string | null) => void;
+  renamingWs: boolean;
+  onSetRenamingWs: (id: string | null) => void;
 }) {
   const Chevron = collapsed ? IconChevronRight : IconChevronDown;
   // The last tab in a workspace is not closable (mirrors the desktop's
   // per-workspace gate: useTabs.closeTab no-ops at length<=1 and hides the X).
   const canClose = group.tabs.length > 1;
+  // "Other" is a bucket this client invents for sessions the host sent no
+  // workspace for; there is nothing on the desktop to rename.
+  const canRenameWs = remote.hostControl && group.id !== WS_OTHER;
   return (
     <div className="mb-0.5">
-      {showHeader && (
+      {showHeader && renamingWs ? (
+        <RenameRow
+          initial={group.name}
+          onCancel={() => onSetRenamingWs(null)}
+          onCommit={(v) => {
+            remote.renameWorkspace(group.id, v);
+            onSetRenamingWs(null);
+          }}
+        />
+      ) : null}
+      {showHeader && !renamingWs && (
         <div
           className={cn(
-            "flex h-7 items-center gap-1 px-1.5 text-xs",
+            "group/ws flex h-7 items-center gap-1 px-1.5 text-xs",
             // Highlight the active workspace like the desktop Workspaces panel.
             active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
           )}
@@ -297,6 +350,7 @@ function WorkspaceGroup({
           <button
             type="button"
             onClick={onSelectWorkspace}
+            onDoubleClick={() => canRenameWs && onSetRenamingWs(group.id)}
             title={group.name}
             className="hover:text-foreground min-w-0 flex-1 truncate text-left font-medium"
           >
@@ -305,6 +359,26 @@ function WorkspaceGroup({
           <span className="bg-muted/60 shrink-0 px-1 text-[10px] tabular-nums">
             {group.tabs.length}
           </span>
+          {canRenameWs && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`Options for ${group.name || "workspace"}`}
+                  title="Workspace options"
+                  className="hover:text-foreground flex size-4 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/ws:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:opacity-100"
+                >
+                  <IconMore size={13} strokeWidth={2} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-44">
+                <DropdownMenuItem onSelect={() => onSetRenamingWs(group.id)}>
+                  <IconRename size={14} strokeWidth={1.8} />
+                  Rename workspace…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       )}
       {!collapsed && (
@@ -318,6 +392,8 @@ function WorkspaceGroup({
               remote={remote}
               onSelect={() => onSelectTab(s.id)}
               onClose={() => onCloseTab(s)}
+              renaming={renamingId === s.id}
+              onSetRenaming={onSetRenaming}
             />
           ))}
         </div>
@@ -333,6 +409,8 @@ function TabRow({
   remote,
   onSelect,
   onClose,
+  renaming,
+  onSetRenaming,
 }: {
   s: SessionMeta;
   active: boolean;
@@ -340,6 +418,8 @@ function TabRow({
   remote: Remote;
   onSelect: () => void;
   onClose: () => void;
+  renaming: boolean;
+  onSetRenaming: (id: string | null) => void;
 }) {
   const ssh = s.kind === "ssh";
   const TabIcon = ssh ? IconSsh : IconTerminal;
@@ -351,7 +431,13 @@ function TabRow({
   // over tabmeta) so the tab reads the same as the app; fall back to the local
   // xterm capture only for hosts too old to send it.
   const title = remote.hostTitles[s.id] ?? remote.titles[s.id];
-  const showTitle = title && title !== folder && title !== s.cwd;
+  // A rename beats every derived label AND the program's window title: the user
+  // named this tab, and a TUI that keeps rewriting its OSC 0/2 title must not
+  // scribble over that. Same precedence the desktop's `leafLabel` applies.
+  const custom = remote.customTitles[s.id];
+  const label = custom || folder;
+  const showTitle = !custom && title && title !== folder && title !== s.cwd;
+  const pinned = !!remote.pinnedIds[s.id];
   const iconColor = running
     ? st === "blocking"
       ? "text-destructive animate-breathe"
@@ -359,6 +445,21 @@ function TabRow({
     : active
       ? accent
       : "text-muted-foreground";
+
+  if (renaming) {
+    return (
+      <RenameRow
+        initial={custom || folder}
+        onCancel={() => onSetRenaming(null)}
+        onCommit={(v) => {
+          // Empty commits `null`, which drops the tab back to its derived name -
+          // the desktop's own "clear the custom title" gesture.
+          remote.renameTab(s.id, v.trim() ? v : null);
+          onSetRenaming(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div
@@ -395,12 +496,59 @@ function TabRow({
             {remote.ordinals[s.id]}
           </span>
         )}
+        {pinned && (
+          <IconPin
+            size={10}
+            strokeWidth={2}
+            aria-label="Pinned"
+            className={cn("shrink-0", active ? accent : "text-muted-foreground/70")}
+          />
+        )}
         <span className="min-w-0 flex-1 truncate">
-          {folder}
+          {label}
           {showTitle ? <span className="opacity-60"> · {title}</span> : null}
         </span>
         {!s.alive && <span className="text-muted-foreground shrink-0 text-[10px]">exited</span>}
       </button>
+      {/* Pin / rename, the desktop's per-tab controls. Hidden entirely when the
+          host is too old to accept them (probed from tabmeta) rather than shown
+          and silently doing nothing. A menu button, not a right-click: there is
+          no right-click on the phone this client is mostly used from. */}
+      {remote.hostControl && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Options for ${label}`}
+              title="Tab options"
+              onClick={(e) => e.stopPropagation()}
+              className="text-muted-foreground hover:text-foreground flex w-5 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/tab:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:opacity-100"
+            >
+              <IconMore size={13} strokeWidth={2} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-40">
+            <DropdownMenuItem onSelect={() => remote.setTabPinned(s.id, !pinned)}>
+              {pinned ? (
+                <IconUnpin size={14} strokeWidth={1.8} />
+              ) : (
+                <IconPin size={14} strokeWidth={1.8} />
+              )}
+              {pinned ? "Unpin tab" : "Pin tab"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onSetRenaming(s.id)}>
+              <IconRename size={14} strokeWidth={1.8} />
+              Rename…
+            </DropdownMenuItem>
+            {custom && (
+              <DropdownMenuItem onSelect={() => remote.renameTab(s.id, null)}>
+                <IconClose size={14} strokeWidth={1.8} />
+                Reset name
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       {/* The sole tab in a workspace has no close button, like the desktop
           (SortableTabGroup: canClose = totalEntries > 1). pr-1.5 keeps the label
           clear of the scrollbar when the X is gone. */}
@@ -420,6 +568,50 @@ function TabRow({
       ) : (
         <span className="w-1.5 shrink-0" aria-hidden />
       )}
+    </div>
+  );
+}
+
+/**
+ * Inline rename field. Replaces the whole row while it is up, so there is no way
+ * to click the tab underneath and lose what you typed. Committing on blur (not
+ * just Enter) is deliberate: on a phone the keyboard's "done" dismisses focus
+ * without ever sending Enter.
+ */
+function RenameRow({
+  initial,
+  onCommit,
+  onCancel,
+}: {
+  initial: string;
+  onCommit: (v: string) => void;
+  onCancel: () => void;
+}) {
+  const [v, setV] = useState(initial);
+  return (
+    <div className="flex h-7 items-center px-1.5">
+      <input
+        autoFocus
+        value={v}
+        maxLength={60}
+        onChange={(e) => setV(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={() => onCommit(v)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onCommit(v);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+          // Keeps the keystroke off the row behind. The session shortcuts run in
+          // the CAPTURE phase and so are already past by now; they skip this
+          // field on their own (useSessionShortcuts).
+          e.stopPropagation();
+        }}
+        className="bg-input text-foreground focus-visible:border-ring w-full border border-transparent px-1.5 py-0.5 text-xs outline-none"
+      />
     </div>
   );
 }

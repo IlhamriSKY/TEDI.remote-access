@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 
 import { b64ToBytes, strToB64 } from "@/lib/b64";
+import { cellRatio, fitFontSize, FIT_MAX_FONT, FIT_MIN_FONT } from "@/lib/fit";
 import { stripLeadingStatusGlyph } from "@/lib/termTitle";
 import {
   DEFAULT_FONT_FAMILY,
@@ -25,6 +26,7 @@ export type ConnState = "connecting" | "open" | "closed";
 type TermEntry = { term: Terminal; el: HTMLElement };
 
 const FONT_KEY = "tedi-remote-fontsize";
+const FONTAUTO_KEY = "tedi-remote-fontauto";
 const FONTFAMILY_KEY = "tedi-remote-fontfamily";
 const LINEHEIGHT_KEY = "tedi-remote-lineheight";
 const THEME_KEY = "tedi-remote-theme";
@@ -101,6 +103,10 @@ export function useRemote() {
   const [sshConns, setSshConns] = useState<SavedSshConn[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(() => clampFont(Number(localStorage.getItem(FONT_KEY))));
+  // Auto: the client picks the text size that makes the host's fixed grid fill
+  // the pane (default). Off: `fontSize` is used verbatim and the pane scrolls to
+  // whatever does not fit. Either way the host's cols/rows are never touched.
+  const [fontAuto, setFontAutoState] = useState(() => localStorage.getItem(FONTAUTO_KEY) !== "0");
   const [fontFamily, setFontFamily] = useState<FontFamilyId>(getInitialFontFamily);
   const [lineHeight, setLineHeightState] = useState<number>(getInitialLineHeight);
   const [ctrlSticky, setCtrlSticky] = useState(false);
@@ -132,6 +138,17 @@ export function useRemote() {
   // tabmeta. Only workspaces with a live (mirrored) terminal appear.
   const [wsById, setWsById] = useState<Record<string, string>>({});
   const [workspaces, setWorkspaces] = useState<RemoteWorkspace[]>([]);
+  // Pin state + the user's own tab name, both mirrored from the desktop, which
+  // owns them: it decides tab ORDER, and it re-publishes the title on every
+  // context change, so a browser-local edit would be overwritten on the next
+  // frame. The browser asks the host and reads the answer back here.
+  const [pinnedIds, setPinnedIds] = useState<Record<string, boolean>>({});
+  const [customTitles, setCustomTitles] = useState<Record<string, string>>({});
+  // Whether the desktop is new enough to accept the tab/workspace control
+  // surface (pin, rename tab, rename workspace — they all landed in one core
+  // build). Probed rather than version-gated: the extension feature-detects the
+  // host API, so the only honest signal is whether a `pinned` boolean arrives.
+  const [hostControl, setHostControl] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const terms = useRef<Map<string, TermEntry>>(new Map());
@@ -140,6 +157,8 @@ export function useRemote() {
   const themeRef = useRef<ThemeName>(theme);
   const fontFamilyRef = useRef<FontFamilyId>(fontFamily);
   const lineHeightRef = useRef<number>(lineHeight);
+  const fontSizeRef = useRef<number>(fontSize);
+  const fontAutoRef = useRef<boolean>(fontAuto);
   const busyRef = useRef<Map<string, boolean>>(new Map());
   const idleTimers = useRef<Map<string, number>>(new Map());
   const pending = useRef<Map<string, Uint8Array[]>>(new Map());
@@ -380,44 +399,62 @@ export function useRemote() {
   }, []);
 
   // The browser is a PURE MIRROR. It adopts each host PTY's real cols/rows and
-  // CSS-scales the render DOWN to fit (never enlarges, so a small host stays at
-  // its native size instead of being blown up blurry). It never sends a size to
-  // the host, so resizing the browser window or rotating a phone cannot reflow
-  // the shared terminal inside the TEDI desktop app.
+  // never sends a size back, so resizing the browser window or rotating a phone
+  // cannot reflow the shared terminal inside the TEDI desktop app.
   //
   // There used to be a "Fit host to my screen" mode here that resized the host
   // PTY to the browser. It filled a phone screen nicely and shredded whatever
   // full-screen CLI was running on the PC, so it is gone; the host now drops
   // browser resize frames outright (see the agent + SSH bridge).
-  const fitTerminal = useCallback(
-    (id: string | null) => {
-      if (!id) return;
-      const entry = terms.current.get(id);
-      const node = entry?.term.element;
-      const host = entry?.el;
-      if (!entry || !node || !host) return;
-      requestAnimationFrame(() => {
-        const live = terms.current.get(id);
-        if (!live || live.el !== host) return;
-        const el = live.term.element;
-        if (!el) return;
-        el.style.transformOrigin = "center center";
-        el.style.transform = "none"; // measure natural size at 1:1
-        const tw = el.offsetWidth;
-        const th = el.offsetHeight;
-        const cw = host.clientWidth;
-        const ch = host.clientHeight;
-        if (tw < 2 || th < 2 || cw < 2 || ch < 2) {
-          el.style.transform = "";
-          return;
+  //
+  // What is left to choose is how big the host's fixed cells are DRAWN, and this
+  // picks a real font size for that instead of the CSS `transform: scale()` it
+  // used to apply -- see lib/fit.ts for why (fuzzy glyphs, a misplaced cursor,
+  // 5.7px text on a phone, and a small host marooned in the middle of a big
+  // pane). With Auto off the user's own size wins and TerminalHost scrolls.
+  const fitTerminal = useCallback((id: string | null) => {
+    if (!id) return;
+    const entry = terms.current.get(id);
+    if (!entry?.term.element || !entry.el) return;
+    requestAnimationFrame(() => {
+      const live = terms.current.get(id);
+      if (!live || live.el !== entry.el) return;
+      const el = live.term.element;
+      const host = live.el;
+      if (!el || !host) return;
+      const at = live.term.options.fontSize ?? DEFAULT_FONT;
+      if (!fontAutoRef.current) {
+        if (at !== fontSizeRef.current) live.term.options.fontSize = fontSizeRef.current;
+        return;
+      }
+      const { cols, rows } = live.term;
+      const ratio = cellRatio(el.offsetWidth, el.offsetHeight, cols, rows, at);
+      if (!ratio) return; // pane not laid out yet; a later refit will catch it
+      const apply = (f: number) => {
+        if (live.term.options.fontSize !== f) live.term.options.fontSize = f;
+      };
+      const overflows = () =>
+        el.offsetWidth > host.clientWidth || el.offsetHeight > host.clientHeight;
+
+      // Start from the estimate so the walk below is a step or two, then VERIFY
+      // against the real render. xterm rounds its cell box to whole pixels and
+      // updates the element synchronously on an options change, so the honest
+      // answer is to look rather than to trust the arithmetic -- a ratio sampled
+      // before the web font loaded describes the fallback face and overshot far
+      // enough to push the prompt row out of the pane.
+      let size = fitFontSize(ratio, cols, rows, host.clientWidth, host.clientHeight);
+      apply(size);
+      while (size > FIT_MIN_FONT && overflows()) apply(--size);
+      while (size < FIT_MAX_FONT) {
+        apply(size + 1);
+        if (overflows()) {
+          apply(size);
+          break;
         }
-        // Downscale-only: shrink a too-big terminal to fit, never enlarge a small
-        // one (that made the text huge and blurry).
-        el.style.transform = `scale(${Math.min(1, cw / tw, ch / th)})`;
-      });
-    },
-    [],
-  );
+        size += 1;
+      }
+    });
+  }, []);
 
   // --- frame handling -----------------------------------------------------
   const writeScrollback = useCallback(
@@ -536,12 +573,20 @@ export function useRemote() {
           const nextStatus: Record<string, AiCliState> = {};
           const nextTitles: Record<string, string> = {};
           const nextWsById: Record<string, string> = {};
+          const nextPinned: Record<string, boolean> = {};
+          const nextCustom: Record<string, string> = {};
+          let canControl = false;
           // Preserve first-seen order + de-dup workspaces by id.
           const wsMap = new Map<string, RemoteWorkspace>();
           for (const it of f.items) {
             nextOrd[it.ptyId] = it.ordinal;
             if (it.state) nextStatus[it.ptyId] = it.state;
             if (it.title) nextTitles[it.ptyId] = it.title;
+            if (typeof it.pinned === "boolean") {
+              canControl = true;
+              if (it.pinned) nextPinned[it.ptyId] = true;
+            }
+            if (it.customTitle) nextCustom[it.ptyId] = it.customTitle;
             if (it.wsId) {
               nextWsById[it.ptyId] = it.wsId;
               if (!wsMap.has(it.wsId)) {
@@ -558,6 +603,12 @@ export function useRemote() {
           setHostTitles(nextTitles);
           setWsById(nextWsById);
           setWorkspaces([...wsMap.values()]);
+          setPinnedIds(nextPinned);
+          setCustomTitles(nextCustom);
+          // Latches on: an empty tabmeta (every terminal closed) carries no
+          // evidence either way and must not retract a capability the host has
+          // already demonstrated.
+          if (canControl) setHostControl(true);
           break;
         }
         case "ssh-conns":
@@ -810,15 +861,34 @@ export function useRemote() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // font size -> all terminals + persist
+  // Text size -> persist + re-fit. Under Auto the fitter owns the rendered size,
+  // so this only records what turning Auto off falls back to.
   useEffect(() => {
+    fontSizeRef.current = fontSize;
     localStorage.setItem(FONT_KEY, String(fontSize));
-    for (const { term } of terms.current.values()) term.options.fontSize = fontSize;
-    // Font change alters cell size, so re-scale every terminal.
     for (const id of terms.current.keys()) fitTerminal(id);
   }, [fontSize, fitTerminal]);
 
-  const bumpFont = useCallback((delta: number) => setFontSize((f) => clampFont(f + delta)), []);
+  useEffect(() => {
+    fontAutoRef.current = fontAuto;
+    try {
+      localStorage.setItem(FONTAUTO_KEY, fontAuto ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+    for (const id of terms.current.keys()) fitTerminal(id);
+  }, [fontAuto, fitTerminal]);
+
+  // A-/A+ are an explicit size choice, so they leave Auto — starting from the
+  // size actually on screen. Under Auto that is the fitted size, and snapping
+  // back to the stored preference on the first press would jump.
+  const bumpFont = useCallback((delta: number) => {
+    const shown = activeIdRef.current
+      ? terms.current.get(activeIdRef.current)?.term.options.fontSize
+      : undefined;
+    setFontAutoState(false);
+    setFontSize(clampFont((shown ?? fontSizeRef.current) + delta));
+  }, []);
   const resetFont = useCallback(() => setFontSize(DEFAULT_FONT), []);
 
   // Font family -> all terminals + persist. Changing the family alters cell
@@ -926,6 +996,32 @@ export function useRemote() {
   // Permanently close (kill) a tab. The host kills the daemon PTY (or the SSH
   // bridge runs ssh_close), which closes it in the desktop app too; the
   // authoritative "exit"/"sessions" frames then drop the tab. Optimistically
+  // Pin / rename a mirrored tab on the DESKTOP. Fire-and-forget: the host does
+  // the work and republishes tabmeta, which is what actually moves this UI. No
+  // optimistic local write, deliberately — the desktop can refuse (a terminal in
+  // a background workspace is not resolvable there), and a local guess would
+  // then show a state the desktop is not in.
+  const setTabPinned = useCallback(
+    (id: string, pinned: boolean) => send({ t: "tab-pin", id, pinned }),
+    [send],
+  );
+  const renameTab = useCallback(
+    (id: string, title: string | null) => {
+      const t = (title ?? "").trim().slice(0, 60);
+      send({ t: "tab-rename", id, title: t || null });
+    },
+    [send],
+  );
+  // A workspace has no derived name to fall back to (a tab does — its cwd), so
+  // an empty rename is dropped here rather than sent and refused by the host.
+  const renameWorkspace = useCallback(
+    (id: string, name: string) => {
+      const n = name.trim().slice(0, 60);
+      if (n) send({ t: "ws-rename", id, name: n });
+    },
+    [send],
+  );
+
   // mark it dead so the UI reacts immediately (a later sessions frame corrects
   // it if the close didn't take).
   const closeTerminal = useCallback(
@@ -984,6 +1080,8 @@ export function useRemote() {
     activeId,
     setActiveId,
     fontSize,
+    fontAuto,
+    setFontAuto: setFontAutoState,
     bumpFont,
     resetFont,
     fontFamily,
@@ -1013,6 +1111,12 @@ export function useRemote() {
     wsById,
     workspaces,
     selectWorkspace,
+    pinnedIds,
+    customTitles,
+    hostControl,
+    setTabPinned,
+    renameTab,
+    renameWorkspace,
     login,
     logout,
     changePassword,

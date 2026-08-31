@@ -7,9 +7,9 @@ import type { Remote } from "@/hooks/useRemote";
 // Every mirrored session keeps a mounted xterm so switching tabs is instant and
 // background terminals stay live. Inactive panes use `invisible
 // pointer-events-none` (visibility, not display:none) so xterm can still measure
-// glyph metrics correctly. Each terminal is rendered at the HOST's real size and
-// CSS-scaled DOWN to fit, so it is centred and clipped. Resizing here only ever
-// changes that scale factor; the host PTY is never touched.
+// glyph metrics correctly. Each terminal is drawn at the HOST's real cols/rows in
+// the largest whole font size that fits the pane (see lib/fit.ts); resizing here
+// only ever changes that font size, the host PTY is never touched.
 export function TerminalHost({ remote }: { remote: Remote }) {
   const { sessions, activeId, attachTerminal, focusActive, fitTerminal } = remote;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -56,11 +56,19 @@ export function TerminalHost({ remote }: { remote: Remote }) {
           className={cn(
             // Near-full-bleed (a 6px inset for breathing room). The inset is set
             // via positioning, not padding, so clientWidth/Height measure the
-            // real available box (the scale math needs the true size).
+            // real available box (the fit math needs the true size).
             "absolute inset-1.5",
-            // The xterm is at the host's size and CSS-scaled down, so center it
-            // and clip the overflow.
-            "flex items-center justify-center overflow-hidden",
+            // Top-left, never centred: a terminal reads from its first cell, and
+            // the fit leaves any slack at the bottom-right where the pane and the
+            // xterm background are the same colour, so it does not show. Centring
+            // would also make the overflow below unreachable — flex splits it
+            // across both edges and you cannot scroll past the start.
+            "flex items-start justify-start",
+            // Pans when the grid cannot fit: with Auto off the user picked a size
+            // bigger than the pane, and even with it on a very wide host bottoms
+            // out at the readable floor. Scrollbars are hidden rather than shown
+            // so their appearing cannot shrink the box the fit just measured.
+            "no-scrollbar overflow-auto overscroll-contain",
             s.id === activeId ? "visible z-10" : "pointer-events-none invisible",
           )}
         />

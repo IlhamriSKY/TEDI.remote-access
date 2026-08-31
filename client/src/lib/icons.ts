@@ -27,5 +27,10 @@ export {
   ChevronRight as IconChevronRight,
   Search as IconSearch,
   Check as IconCheck,
+  // Per-tab controls: the overflow menu, and pin/unpin + rename inside it.
+  EllipsisVertical as IconMore,
+  Pin as IconPin,
+  PinOff as IconUnpin,
+  Pencil as IconRename,
   type LucideIcon,
 } from "lucide-react";

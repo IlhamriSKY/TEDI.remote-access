@@ -58,6 +58,14 @@ export type ServerFrame =
         ordinal: number;
         state?: AiCliState;
         title?: string;
+        /** Pin state of the tab this terminal lives in. Present only on a host
+         *  new enough to support pin/rename, so it doubles as the capability
+         *  probe: a client that never sees a boolean here hides both controls
+         *  rather than sending frames the host would silently drop. */
+        pinned?: boolean;
+        /** The user's own name for the tab. Beats every derived label, and
+         *  unlike `title` a running TUI cannot overwrite it. */
+        customTitle?: string;
         wsId?: string;
         wsName?: string;
         wsActive?: boolean;

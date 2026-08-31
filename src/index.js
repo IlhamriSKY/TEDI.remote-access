@@ -618,6 +618,41 @@ function handleSshRelayFrame(ctx, m) {
     }
     return;
   }
+  // Rename a workspace. Host-authoritative for the same reason the tab rename
+  // below is: the name reaches the browser as `wsName` on every tabmeta frame,
+  // so a browser-local edit would be undone by the next push.
+  if (m.t === "ws-rename" && typeof m.id === "string") {
+    if (ctx.app && typeof ctx.app.renameWorkspace === "function") {
+      ctx.app.renameWorkspace(m.id, typeof m.name === "string" ? m.name : "").catch(() => {});
+    }
+    return;
+  }
+  // Pin / rename a mirrored tab. Both are host-authoritative: the desktop owns
+  // tab ORDER, and it re-publishes the tab's title on every context change, so a
+  // browser-local rename would be overwritten on the next tabmeta frame. The
+  // browser therefore asks the desktop and reads the result back through tabmeta.
+  //
+  // `typeof`-detected rather than gated on `engines.tedi`: an engine bump would
+  // stop this extension loading AT ALL on an older TEDI, where everything else
+  // here still works. On such a host these frames are simply dropped, and the
+  // client hides the controls (it probes for `pinned` in tabmeta).
+  //
+  // No ownership gate, unlike `input`/`close` below: the only ids a browser can
+  // know are the ones this bridge published to it, the core resolves an unknown
+  // key to an error, and the effect is limited to relabelling and reordering the
+  // user's own tabs — no PTY is read, written, or spawned.
+  if (m.t === "tab-pin" && typeof m.id === "string") {
+    if (ctx.app && typeof ctx.app.setTabPinned === "function") {
+      ctx.app.setTabPinned(m.id, !!m.pinned).catch(() => {});
+    }
+    return;
+  }
+  if (m.t === "tab-rename" && typeof m.id === "string") {
+    if (ctx.app && typeof ctx.app.renameTab === "function") {
+      ctx.app.renameTab(m.id, typeof m.title === "string" ? m.title : null).catch(() => {});
+    }
+    return;
+  }
   if (m.t === "input" && typeof m.id === "string" && m.id.startsWith("ssh:")) {
     const id = parseInt(m.id.slice(4), 10);
     // Only act on sessions THIS bridge actually mirrors. The relay broadcasts
