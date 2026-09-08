@@ -82,7 +82,7 @@ export function TerminalHost({ remote }: { remote: Remote }) {
 
 function EmptyState({ hostOnline, connecting }: { hostOnline: boolean; connecting: boolean }) {
   const msg = connecting
-    ? "Connecting to the relay..."
+    ? "Connecting to the relay"
     : hostOnline
       ? "No terminals open on the host yet. Open a terminal (or SSH tab) in TEDI."
       : "Host is offline. Open TEDI on your PC to connect.";

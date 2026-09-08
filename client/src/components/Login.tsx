@@ -90,7 +90,7 @@ export function Login({ remote }: { remote: Remote }) {
         {err && <p className="mt-3 text-xs text-destructive">{err}</p>}
 
         <Button type="submit" disabled={busy} className="mt-5 w-full">
-          {busy ? "Signing in..." : "Sign in"}
+          {busy ? "Signing in" : "Sign in"}
         </Button>
       </form>
     </div>

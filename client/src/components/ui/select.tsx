@@ -38,7 +38,7 @@ export function Select({
   value,
   onChange,
   options,
-  placeholder = "Select…",
+  placeholder = "Select",
   searchable = false,
   size = "default",
   className,
@@ -142,7 +142,7 @@ export function Select({
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search…"
+                placeholder="Search"
                 aria-label="Search options"
                 className="text-foreground placeholder:text-muted-foreground h-8 w-full bg-transparent text-xs outline-none"
               />

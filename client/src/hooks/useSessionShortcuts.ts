@@ -85,7 +85,7 @@ export function useSessionShortcuts(remote: Remote) {
 export const SESSION_SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl+Shift+→", label: "Next terminal" },
   { keys: "Ctrl+Shift+←", label: "Previous terminal" },
-  { keys: "Ctrl+Alt+1…9", label: "Jump to terminal" },
+  { keys: "Ctrl+Alt+1-9", label: "Jump to terminal" },
   { keys: "Ctrl+Shift+C", label: "Copy selection" },
   { keys: "Ctrl+V", label: "Paste" },
 ];

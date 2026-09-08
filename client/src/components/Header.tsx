@@ -64,7 +64,7 @@ export function Header({
 
 // Round, pulsing connection light (green online / amber connecting / red offline).
 function OnlineIndicator({ online, connecting }: { online: boolean; connecting: boolean }) {
-  const title = connecting ? "Connecting…" : online ? "Host online" : "Host offline";
+  const title = connecting ? "Connecting" : online ? "Host online" : "Host offline";
   const label = connecting ? "Connecting" : online ? "Online" : "Offline";
   const tone = online ? "bg-success" : connecting ? "bg-warning" : "bg-destructive";
   const textTone = online ? "text-success" : connecting ? "text-warning" : "text-muted-foreground";

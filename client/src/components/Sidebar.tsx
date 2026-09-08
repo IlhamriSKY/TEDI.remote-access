@@ -211,12 +211,12 @@ export function Sidebar({
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setSshOpen(true)}>
                 <IconSsh size={14} strokeWidth={1.8} />
-                New SSH…
+                New SSH
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setNewWsOpen(true)}>
                 <IconFolder size={14} strokeWidth={1.8} />
-                New workspace…
+                New workspace
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -374,7 +374,7 @@ function WorkspaceGroup({
               <DropdownMenuContent align="end" className="min-w-44">
                 <DropdownMenuItem onSelect={() => onSetRenamingWs(group.id)}>
                   <IconRename size={14} strokeWidth={1.8} />
-                  Rename workspace…
+                  Rename workspace
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -538,7 +538,7 @@ function TabRow({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onSetRenaming(s.id)}>
               <IconRename size={14} strokeWidth={1.8} />
-              Rename…
+              Rename
             </DropdownMenuItem>
             {custom && (
               <DropdownMenuItem onSelect={() => remote.renameTab(s.id, null)}>

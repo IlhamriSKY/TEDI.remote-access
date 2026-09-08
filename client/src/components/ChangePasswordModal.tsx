@@ -73,7 +73,7 @@ export function ChangePasswordModal({ remote, onClose }: { remote: Remote; onClo
             Cancel
           </Button>
           <Button type="submit" size="sm" disabled={busy || done}>
-            {busy ? "Saving…" : "Change"}
+            {busy ? "Saving" : "Change"}
           </Button>
         </ModalFooter>
       </form>

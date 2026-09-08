@@ -73,7 +73,7 @@ export function NewSshModal({ remote, onClose }: { remote: Remote; onClose: () =
                   searchable
                   value={id}
                   onChange={setId}
-                  placeholder="Select a saved host…"
+                  placeholder="Select a saved host"
                   options={conns.map((c) => ({
                     value: c.id,
                     label: c.name,
@@ -117,7 +117,7 @@ export function NewSshModal({ remote, onClose }: { remote: Remote; onClose: () =
             Cancel
           </Button>
           <Button type="submit" size="sm" disabled={busy || conns.length === 0}>
-            {busy ? "Connecting…" : "Connect"}
+            {busy ? "Connecting" : "Connect"}
           </Button>
         </ModalFooter>
       </form>

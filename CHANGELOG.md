@@ -2,6 +2,12 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.12.1] - 2026-09-08
+
+### Changed
+
+- **Nothing in the interface trails off in an ellipsis.** The trailing `...` on a button is a convention for "this opens a dialog" and the one on a status line is a convention for "still going", and this client used both, in two different characters. `New SSH`, `New workspace`, `Rename`, `Connecting`, `Saving`, `Signing in` and every placeholder now say what they are without it, matching TEDI 0.4.49, which drops the same thing across the desktop app. The one that was never an ellipsis at all is fixed with them: the `Ctrl+Alt+1...9` shortcut hint in Settings is a RANGE, one through nine, and now reads `Ctrl+Alt+1-9`.
+
 ## [0.12.0] - 2026-08-31
 
 Needs TEDI **>= 0.4.35** for tab pin/rename and workspace rename; every other
