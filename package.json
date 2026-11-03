@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
-    "check": "node --check extension.js && node check-no-host-resize.mjs",
+    "check": "node --check extension.js && node check-no-host-resize.mjs && node check-ai-tool.mjs",
     "typecheck": "tsc -p jsconfig.json"
   },
   "devDependencies": {

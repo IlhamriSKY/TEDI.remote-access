@@ -2,6 +2,16 @@
 
 All notable changes to the TEDI Remote Access extension are documented here.
 
+## [0.13.0] - 2026-11-03
+
+### Added
+
+- **AI tool `remote_access`.** `status` reports whether mirroring is connected, the relay's host name and the viewer count; `disconnect` stops mirroring until the user toggles the extension or restarts TEDI. An agent cannot turn mirroring on, change the relay or read a credential.
+
+### Fixed
+
+- A stop arriving while the SSH bridge was fetching its relay ticket no longer lets the bridge connect afterwards.
+
 ## [0.12.1] - 2026-09-08
 
 ### Changed

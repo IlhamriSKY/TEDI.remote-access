@@ -39,6 +39,8 @@ let booting = false;
 let agentOnline = false;
 let clientCount = 0;
 let relayHost = "";
+// Set by the AI tool: holds the relay off until the extension is toggled, so a queued restart cannot undo it.
+let stoppedByTool = false;
 
 // "wss://remote.example.com/agent" -> "remote.example.com" for the tooltip.
 function hostFromRelay(relayUrl) {
@@ -216,6 +218,7 @@ async function startAgent() {
     .slice(0, 64);
   if (!agentName) agentName = "TEDI host";
 
+  if (stoppedByTool) return;
   booting = true;
   setStatus("default", "Remote Access: connecting...");
   try {
@@ -482,6 +485,8 @@ async function connectSshRelay(ctx, relayUrl, token) {
   } catch {
     /* retry below */
   }
+  // Stopped while the ticket was in flight: dialing now would mirror SSH after a disconnect.
+  if (sshStop) return;
   if (!ticket) {
     sshReconnectTimer = setTimeout(() => connectSshRelay(ctx, relayUrl, token), 5000);
     return;
@@ -739,9 +744,70 @@ function handleSshRelayFrame(ctx, m) {
   }
 }
 
+// Hostname only: the relay setting is free text and may carry user:pass@ or a query string.
+function relayHostname(value) {
+  try {
+    return new URL(normalizeRelayUrl(value)).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+async function remoteAccessStatus() {
+  // The agent prints READY before it dials the relay, so only the bridge socket proves the link.
+  const connected = agentOnline && sshWs != null && sshWs.readyState === 1;
+  let message = "Not connected. Only the user can turn this on, in Settings.";
+  if (booting) message = "Connecting to the relay.";
+  else if (connected) message = `Mirroring live terminals through the relay, ${clientCount} browser(s) attached.`;
+  else if (agentOnline) message = "The agent is running but the relay link is not confirmed, so terminals may still be mirrored and the viewer count is unknown.";
+  else if (stoppedByTool) message = "Off: disconnected through this tool. It stays off until the user toggles the extension or restarts TEDI.";
+  return {
+    connected,
+    agentRunning: agentOnline,
+    relayHost: relayHostname(await ctxRef.settings.get("relayUrl")),
+    viewers: connected ? clientCount : null,
+    message,
+  };
+}
+
+async function remoteAccessDisconnect() {
+  if (booting) return { disconnected: false, message: "Still connecting. Call disconnect again in a few seconds." };
+  stoppedByTool = true;
+  if (restartTimer) clearTimeout(restartTimer);
+  restartTimer = null;
+  await stopAgent();
+  await reapOrphanAgents(ctxRef);
+  ctxRef.ui.toast("Remote Access disconnected by an AI tool. Toggle the extension to reconnect.", { variant: "warning" });
+  return { disconnected: true, ...(await remoteAccessStatus()) };
+}
+
+function registerAiTool(ctx) {
+  if (typeof ctx.contribute?.aiTools !== "function") return;
+  ctx.contribute.aiTools([
+    {
+      name: "remote_access",
+      description:
+        "Remote Access mirrors live terminals to a browser through the user's relay. status: connected, relay host, viewer count. disconnect: stop mirroring until the user toggles the extension or restarts TEDI. It cannot turn mirroring on or read credentials.",
+      parameters: {
+        type: "object",
+        properties: { action: { type: "string", enum: ["status", "disconnect"] } },
+        required: ["action"],
+      },
+      approval: "needsApproval",
+    },
+  ]);
+  ctx.registerAiToolHandler("remote_access", (args) => {
+    if (args.action === "status") return remoteAccessStatus();
+    if (args.action === "disconnect") return remoteAccessDisconnect();
+    return { error: 'Unknown action. Use "status" or "disconnect".' };
+  });
+}
+
 /** @param {import("../tedi").ExtensionContext} ctx */
 export async function activate(ctx) {
   ctxRef = ctx;
+  stoppedByTool = false;
+  registerAiTool(ctx);
 
   // The extension's own enable/disable toggle is the single on/off: TEDI calls
   // activate() / deactivate() when it is flipped, so there is no separate
